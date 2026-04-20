@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local pricing engine overrides (defaults live in code)
+/data/pricing-engine.config.json

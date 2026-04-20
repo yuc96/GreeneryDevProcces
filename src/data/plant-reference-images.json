@@ -1,0 +1,478 @@
+{
+  "version": 1,
+  "notes": "Greenery selection catalog. 56 PNGs in /public/plants/reference/{code}.png; filenames assigned from Plant Images (sorted). Verify visual match and swap files as needed. EEE/FFF/GGG: add images later.",
+  "plants": [
+    {
+      "catalogCode": "A",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Bamboo Palm",
+      "scientificName": "Chamaedorea 'Florida hybrid'",
+      "imageFile": "A.png",
+      "imagePublicPath": "/plants/reference/A.png"
+    },
+    {
+      "catalogCode": "B",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Kentia Palm",
+      "scientificName": "Howea forsteriana",
+      "imageFile": "B.png",
+      "imagePublicPath": "/plants/reference/B.png"
+    },
+    {
+      "catalogCode": "C",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Emerald Beauty",
+      "scientificName": "Aglaonema 'Emerald Beauty'",
+      "imageFile": "C.png",
+      "imagePublicPath": "/plants/reference/C.png"
+    },
+    {
+      "catalogCode": "D",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Arrowhead",
+      "scientificName": "Nephthytis 'White Butterfly'",
+      "imageFile": "D.png",
+      "imagePublicPath": "/plants/reference/D.png"
+    },
+    {
+      "catalogCode": "E",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Silver Queen",
+      "scientificName": "Aglaonema 'Silver Queen'",
+      "imageFile": "E.png",
+      "imagePublicPath": "/plants/reference/E.png"
+    },
+    {
+      "catalogCode": "F",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Silver Bay",
+      "scientificName": "Aglaonema 'Silver Bay'",
+      "imageFile": "F.png",
+      "imagePublicPath": "/plants/reference/F.png"
+    },
+    {
+      "catalogCode": "G",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Aspidistra",
+      "scientificName": "Aspidistra elatior",
+      "imageFile": "G.png",
+      "imagePublicPath": "/plants/reference/G.png"
+    },
+    {
+      "catalogCode": "H",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Spath Sensation",
+      "scientificName": "Spathiphyllum 'Sensation'",
+      "imageFile": "H.png",
+      "imagePublicPath": "/plants/reference/H.png"
+    },
+    {
+      "catalogCode": "I",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Corn Plant",
+      "scientificName": "Dracaena fragrans 'massangeana'",
+      "imageFile": "I.png",
+      "imagePublicPath": "/plants/reference/I.png"
+    },
+    {
+      "catalogCode": "J",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Golden Pothos",
+      "scientificName": "Epipremnum aureum",
+      "imageFile": "J.png",
+      "imagePublicPath": "/plants/reference/J.png"
+    },
+    {
+      "catalogCode": "K",
+      "selectionSheet": "SELECTION_C",
+      "commonName": "Aglaonema (catalog varieties)",
+      "scientificName": "Aglaonema spp.",
+      "imageFile": "K.png",
+      "imagePublicPath": "/plants/reference/K.png"
+    },
+    {
+      "catalogCode": "L",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Jade Pothos",
+      "scientificName": "Epipremnum aureum 'Jade'",
+      "imageFile": "L.png",
+      "imagePublicPath": "/plants/reference/L.png"
+    },
+    {
+      "catalogCode": "M",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Janet Craig",
+      "scientificName": "Dracaena deremensis 'Janet Craig'",
+      "imageFile": "M.png",
+      "imagePublicPath": "/plants/reference/M.png"
+    },
+    {
+      "catalogCode": "N",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Janet Craig Compacta",
+      "scientificName": "Dracaena deremensis",
+      "imageFile": "N.png",
+      "imagePublicPath": "/plants/reference/N.png"
+    },
+    {
+      "catalogCode": "O",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Snake Plant",
+      "scientificName": "Sansevieria trifasciata laurentii",
+      "imageFile": "O.png",
+      "imagePublicPath": "/plants/reference/O.png"
+    },
+    {
+      "catalogCode": "P",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Warneckei",
+      "scientificName": "Dracaena deremensis 'Warneckei'",
+      "imageFile": "P.png",
+      "imagePublicPath": "/plants/reference/P.png"
+    },
+    {
+      "catalogCode": "Q",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Natal Mahogany",
+      "scientificName": "Trichilia dregeana",
+      "imageFile": "Q.png",
+      "imagePublicPath": "/plants/reference/Q.png"
+    },
+    {
+      "catalogCode": "R",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Areca Palm",
+      "scientificName": "Chrysalidocarpus lutescens",
+      "imageFile": "R.png",
+      "imagePublicPath": "/plants/reference/R.png"
+    },
+    {
+      "catalogCode": "S",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Arboricola tree",
+      "scientificName": "Schefflera arboricola",
+      "imageFile": "S.png",
+      "imagePublicPath": "/plants/reference/S.png"
+    },
+    {
+      "catalogCode": "T",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Bromeliads",
+      "scientificName": "Bromeliaceae",
+      "imageFile": "T.png",
+      "imagePublicPath": "/plants/reference/T.png"
+    },
+    {
+      "catalogCode": "U",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Chicken Gizzard",
+      "scientificName": "Polyscias balfouriana",
+      "imageFile": "U.png",
+      "imagePublicPath": "/plants/reference/U.png"
+    },
+    {
+      "catalogCode": "V",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Color Bowl",
+      "scientificName": "Assorted flowering",
+      "imageFile": "V.png",
+      "imagePublicPath": "/plants/reference/V.png"
+    },
+    {
+      "catalogCode": "W",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Croton",
+      "scientificName": "Codiaeum variegatum 'Petra'",
+      "imageFile": "W.png",
+      "imagePublicPath": "/plants/reference/W.png"
+    },
+    {
+      "catalogCode": "X",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Dracaena Lisa",
+      "scientificName": "Dracaena deremensis 'Lisa'",
+      "imageFile": "X.png",
+      "imagePublicPath": "/plants/reference/X.png"
+    },
+    {
+      "catalogCode": "Y",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Emerald Gem",
+      "scientificName": "Homalomena",
+      "imageFile": "Y.png",
+      "imagePublicPath": "/plants/reference/Y.png"
+    },
+    {
+      "catalogCode": "Z",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Exotic Marginata",
+      "scientificName": "Dracaena marginata",
+      "imageFile": "Z.png",
+      "imagePublicPath": "/plants/reference/Z.png"
+    },
+    {
+      "catalogCode": "AA",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Ficus Nitida",
+      "scientificName": "Ficus retusa nitida",
+      "imageFile": "AA.png",
+      "imagePublicPath": "/plants/reference/AA.png"
+    },
+    {
+      "catalogCode": "BB",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Fishtail Palm",
+      "scientificName": "Caryota mitis",
+      "imageFile": "BB.png",
+      "imagePublicPath": "/plants/reference/BB.png"
+    },
+    {
+      "catalogCode": "CC",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Lady Jane",
+      "scientificName": "Anthurium scherzerianum",
+      "imageFile": "CC.png",
+      "imagePublicPath": "/plants/reference/CC.png"
+    },
+    {
+      "catalogCode": "DD",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Ming Aralia",
+      "scientificName": "Polyscias fruticosa",
+      "imageFile": "DD.png",
+      "imagePublicPath": "/plants/reference/DD.png"
+    },
+    {
+      "catalogCode": "EE",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Michiko Cane",
+      "scientificName": "Dracaena deremensis",
+      "imageFile": "EE.png",
+      "imagePublicPath": "/plants/reference/EE.png"
+    },
+    {
+      "catalogCode": "FF",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Neanthe Bella Palm",
+      "scientificName": "Chamaedorea elegans",
+      "imageFile": "FF.png",
+      "imagePublicPath": "/plants/reference/FF.png"
+    },
+    {
+      "catalogCode": "GG",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Algerian Ivy",
+      "scientificName": "Hedera canariensis",
+      "imageFile": "GG.png",
+      "imagePublicPath": "/plants/reference/GG.png"
+    },
+    {
+      "catalogCode": "HH",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Norfolk Island Pine",
+      "scientificName": "Araucaria heterophylla",
+      "imageFile": "HH.png",
+      "imagePublicPath": "/plants/reference/HH.png"
+    },
+    {
+      "catalogCode": "II",
+      "selectionSheet": "SHEET_3",
+      "commonName": "Oak Ivy",
+      "scientificName": "Cissus rhombifolia",
+      "imageFile": "II.png",
+      "imagePublicPath": "/plants/reference/II.png"
+    },
+    {
+      "catalogCode": "JJ",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Orchids",
+      "scientificName": "Phalaenopsis",
+      "imageFile": "JJ.png",
+      "imagePublicPath": "/plants/reference/JJ.png"
+    },
+    {
+      "catalogCode": "KK",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Pigmy Date Palm",
+      "scientificName": "Phoenix roebelenii",
+      "imageFile": "KK.png",
+      "imagePublicPath": "/plants/reference/KK.png"
+    },
+    {
+      "catalogCode": "LL",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Ponytail Palm",
+      "scientificName": "Beaucarnea recurvata",
+      "imageFile": "LL.png",
+      "imagePublicPath": "/plants/reference/LL.png"
+    },
+    {
+      "catalogCode": "MM",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Rhapis Palm",
+      "scientificName": "Rhapis excelsa",
+      "imageFile": "MM.png",
+      "imagePublicPath": "/plants/reference/MM.png"
+    },
+    {
+      "catalogCode": "NN",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Reflexa",
+      "scientificName": "Pleomele reflexa",
+      "imageFile": "NN.png",
+      "imagePublicPath": "/plants/reference/NN.png"
+    },
+    {
+      "catalogCode": "OO",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Schefflera Amate",
+      "scientificName": "Brassaia actinophylla",
+      "imageFile": "OO.png",
+      "imagePublicPath": "/plants/reference/OO.png"
+    },
+    {
+      "catalogCode": "PP",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Totem Pothos",
+      "scientificName": "Epipremnum aureum",
+      "imageFile": "PP.png",
+      "imagePublicPath": "/plants/reference/PP.png"
+    },
+    {
+      "catalogCode": "QQ",
+      "selectionSheet": "SHEET_4",
+      "commonName": "White Bird Paradise",
+      "scientificName": "Strelitzia nicolai",
+      "imageFile": "QQ.png",
+      "imagePublicPath": "/plants/reference/QQ.png"
+    },
+    {
+      "catalogCode": "RR",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Xanadu",
+      "scientificName": "Philodendron xanadu",
+      "imageFile": "RR.png",
+      "imagePublicPath": "/plants/reference/RR.png"
+    },
+    {
+      "catalogCode": "SS",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Yucca",
+      "scientificName": "Yucca elephantipes",
+      "imageFile": "SS.png",
+      "imagePublicPath": "/plants/reference/SS.png"
+    },
+    {
+      "catalogCode": "TT",
+      "selectionSheet": "SHEET_4",
+      "commonName": "ZZ Plant",
+      "scientificName": "Zamioculcas zamiifolia",
+      "imageFile": "TT.png",
+      "imagePublicPath": "/plants/reference/TT.png"
+    },
+    {
+      "catalogCode": "UU",
+      "selectionSheet": "SHEET_4",
+      "commonName": "King Maya Palm",
+      "scientificName": "Chamaedorea Hooperiana",
+      "imageFile": "UU.png",
+      "imagePublicPath": "/plants/reference/UU.png"
+    },
+    {
+      "catalogCode": "VV",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Adonidia Palm",
+      "scientificName": "Adonidia merrillii",
+      "imageFile": "VV.png",
+      "imagePublicPath": "/plants/reference/VV.png"
+    },
+    {
+      "catalogCode": "WW",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Buddhist Pine",
+      "scientificName": "Podocarpus gracilior",
+      "imageFile": "WW.png",
+      "imagePublicPath": "/plants/reference/WW.png"
+    },
+    {
+      "catalogCode": "XX",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Black Olive",
+      "scientificName": "Bucida buceras",
+      "imageFile": "XX.png",
+      "imagePublicPath": "/plants/reference/XX.png"
+    },
+    {
+      "catalogCode": "YY",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Cactus group",
+      "scientificName": "Cactaceae",
+      "imageFile": "YY.png",
+      "imagePublicPath": "/plants/reference/YY.png"
+    },
+    {
+      "catalogCode": "ZZ",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "False Aralia",
+      "scientificName": "Dizygotheca elegantissima",
+      "imageFile": "ZZ.png",
+      "imagePublicPath": "/plants/reference/ZZ.png"
+    },
+    {
+      "catalogCode": "AAA",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Ficus Alii",
+      "scientificName": "Ficus binnendijkii 'Alii'",
+      "imageFile": "AAA.png",
+      "imagePublicPath": "/plants/reference/AAA.png"
+    },
+    {
+      "catalogCode": "BBB",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Ficus Midnight",
+      "scientificName": "Ficus benjamina 'midnight'",
+      "imageFile": "BBB.png",
+      "imagePublicPath": "/plants/reference/BBB.png"
+    },
+    {
+      "catalogCode": "CCC",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Fiddle Leaf Fig",
+      "scientificName": "Ficus lyrata",
+      "imageFile": "CCC.png",
+      "imagePublicPath": "/plants/reference/CCC.png"
+    },
+    {
+      "catalogCode": "DDD",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "King Sago",
+      "scientificName": "Cycas revoluta",
+      "imageFile": "DDD.png",
+      "imagePublicPath": "/plants/reference/DDD.png"
+    },
+    {
+      "catalogCode": "EEE",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Marginata Tricolor",
+      "scientificName": "Dracaena marginata",
+      "imageFile": null,
+      "imagePublicPath": null
+    },
+    {
+      "catalogCode": "FFF",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Triangle Palm",
+      "scientificName": "Neodypsis decaryi",
+      "imageFile": null,
+      "imagePublicPath": null
+    },
+    {
+      "catalogCode": "GGG",
+      "selectionSheet": "SELECTION_GUIDE",
+      "commonName": "Washingtonia Palm",
+      "scientificName": "Washingtonia filifera",
+      "imageFile": null,
+      "imagePublicPath": null
+    }
+  ]
+}

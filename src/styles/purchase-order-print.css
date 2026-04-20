@@ -1,0 +1,193 @@
+/* Internal purchase order — print / Save as PDF */
+
+.po-print-root {
+  --po-green: #2d5a27;
+  --po-border: #cbd5e1;
+  --po-muted: #64748b;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.po-print-root .po-page {
+  background: #fff;
+  width: 297mm;
+  min-height: 210mm;
+  margin: 16px auto;
+  padding: 10mm 8mm;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.08);
+}
+
+.po-print-root .po-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 3px solid var(--po-green);
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.po-print-root .po-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--po-green);
+  letter-spacing: 0.02em;
+}
+
+.po-print-root .po-sub {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  color: var(--po-muted);
+  max-width: 320px;
+}
+
+.po-print-root .po-meta-block {
+  text-align: right;
+  font-size: 0.72rem;
+}
+
+.po-print-root .po-meta-block strong {
+  display: block;
+  font-size: 0.8rem;
+  color: #0f172a;
+}
+
+.po-print-root .po-meta-id {
+  display: block;
+  margin-top: 4px;
+  word-break: break-all;
+  font-size: 0.62rem;
+  color: var(--po-muted);
+}
+
+.po-print-root .po-muted-sm {
+  margin-top: 2px;
+  font-size: 0.58rem;
+  color: var(--po-muted);
+}
+
+.po-print-root .po-line-note {
+  margin-top: 4px;
+  font-size: 0.58rem;
+  color: #475569;
+}
+
+.po-print-root .po-empty-row {
+  text-align: center;
+  padding: 16px;
+  color: var(--po-muted);
+}
+
+.po-print-root .po-section {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--po-border);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.po-print-root .po-section h3 {
+  margin: 0 0 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--po-green);
+}
+
+.po-print-root .po-section p {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.po-print-root .po-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.po-print-root table.po-lines {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.65rem;
+}
+
+.po-print-root table.po-lines th,
+.po-print-root table.po-lines td {
+  border: 1px solid var(--po-border);
+  padding: 5px 6px;
+  vertical-align: top;
+  text-align: left;
+}
+
+.po-print-root table.po-lines th {
+  background: #eef5ee;
+  color: var(--po-green);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.58rem;
+}
+
+.po-print-root table.po-lines td.num,
+.po-print-root table.po-lines th.num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.po-print-root .po-vendor {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.po-print-root .po-vendor-addr {
+  color: var(--po-muted);
+  font-size: 0.62rem;
+  margin-top: 2px;
+}
+
+.po-print-root .po-totals {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: flex-end;
+  font-size: 0.78rem;
+}
+
+.po-print-root .po-totals span {
+  font-weight: 700;
+}
+
+.po-print-root .po-footnote {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--po-border);
+  font-size: 0.65rem;
+  color: var(--po-muted);
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm 10mm;
+  }
+
+  .po-print-root {
+    background: #fff !important;
+  }
+  .po-print-root .po-page {
+    margin: 0 !important;
+    padding: 8mm 10mm !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    min-height: auto !important;
+  }
+  .po-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

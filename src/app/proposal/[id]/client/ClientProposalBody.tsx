@@ -1,0 +1,473 @@
+"use client";
+
+import { useMemo } from "react";
+import Image from "next/image";
+import plantReferenceCatalog from "@/data/plant-reference-images.json";
+import { catalogEntriesForPhotoPicker } from "@/lib/plant-reference-images";
+import type { SummaryResponse } from "@/lib/types";
+
+const money = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 2,
+});
+
+function displayPlantLabel(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, "").trim() || name;
+}
+
+function potSizeFromName(name: string): string {
+  const m = name.match(/\(([^)]+)\)\s*$/);
+  return m ? m[1] : "—";
+}
+
+function rotationMonthlyBilled(r: {
+  monthlyBilled?: number;
+  costPerRotation?: number;
+  frequencyMultiplier?: number;
+}): number {
+  if (r.monthlyBilled != null && Number.isFinite(r.monthlyBilled)) {
+    return r.monthlyBilled;
+  }
+  if (
+    r.costPerRotation != null &&
+    r.frequencyMultiplier != null &&
+    Number.isFinite(r.costPerRotation) &&
+    Number.isFinite(r.frequencyMultiplier)
+  ) {
+    return (r.costPerRotation * r.frequencyMultiplier) / 12;
+  }
+  return 0;
+}
+
+function maintenanceProgramLabel(
+  tier: SummaryResponse["proposal"]["maintenanceTier"],
+): string {
+  if (tier === "tier_1") return "Tier 1";
+  if (tier === "tier_2") return "Tier 2";
+  return "Tier 3";
+}
+
+function PlantPhotoThumb({ src, alt }: { src: string; alt: string }) {
+  // eslint-disable-next-line @next/next/no-img-element -- data URLs from builder or same-origin catalog paths
+  return <img src={src} alt={alt} className="plant-card-photo" />;
+}
+
+function pickCatalogFallbackPath(plantLineName: string): string | null {
+  const picks = catalogEntriesForPhotoPicker(
+    plantLineName,
+    "",
+    plantReferenceCatalog.plants,
+  );
+  return picks.find((p) => p.imagePublicPath)?.imagePublicPath ?? null;
+}
+
+function plantPhotoGroupMeta(
+  row: SummaryResponse["items"][number],
+  includeArea: boolean,
+): string {
+  const size = potSizeFromName(row.name);
+  const parts = [`${size} × ${row.qty}`];
+  if (includeArea && row.area?.trim()) parts.push(row.area.trim());
+  return parts.join(" · ");
+}
+
+function PlantPhotoGroup({
+  row,
+  includeAreaInMeta,
+  fallbackCatalogSrc,
+}: {
+  row: SummaryResponse["items"][number];
+  includeAreaInMeta: boolean;
+  fallbackCatalogSrc?: string | null;
+}) {
+  if (row.category !== "plant") return null;
+  const label = displayPlantLabel(row.name);
+  const meta = plantPhotoGroupMeta(row, includeAreaInMeta);
+  const photos = row.photos ?? [];
+  if (!photos.length && !fallbackCatalogSrc) {
+    return (
+      <div className="plant-photo-group plant-photo-group--text-only">
+        <p className="plant-photo-group-title">{label}</p>
+        <p className="plant-photo-group-meta">{meta}</p>
+      </div>
+    );
+  }
+  if (!photos.length && fallbackCatalogSrc) {
+    return (
+      <div className="plant-photo-group">
+        <div className="plant-photo-group-header">
+          <p className="plant-photo-group-title">{label}</p>
+          <p className="plant-photo-group-meta">
+            {meta} · Greenery catalog reference
+          </p>
+        </div>
+        <div className="plant-photo-grid">
+          <div className="plant-photo-grid-cell">
+            <PlantPhotoThumb
+              src={fallbackCatalogSrc}
+              alt={`${label}, Greenery catalog reference`}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="plant-photo-group">
+      <div className="plant-photo-group-header">
+        <p className="plant-photo-group-title">{label}</p>
+        <p className="plant-photo-group-meta">{meta}</p>
+      </div>
+      <div className="plant-photo-grid">
+        {photos.map((src, i) => (
+          <div key={i} className="plant-photo-grid-cell">
+            <PlantPhotoThumb
+              src={src}
+              alt={`${label}, reference photo ${i + 1}`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const TERMS_PARAGRAPHS = [
+  `Greenery Productions must have access to the client's premises during normal working hours. Moving of foliage plants without prior approval is prohibited and voids the guarantee replacement. Interior foliage plants other than large specimen plants in excess of 6' in height will be replaced free of charge under the maintenance guarantee agreement. Exterior plants are covered on a maintenance program where applicable.`,
+  `The client will be responsible for plants damaged by cleaning chemicals, changes in initial light readings, gases, and plants that are stolen, missing, overwatered, or damaged by patrons or employees at the maintenance location.`,
+  `Prices quoted are for one year and automatically renew on each anniversary date unless the client sends written cancellation 30 days before the renewal date.`,
+  `Acceptance of proposal: The above prices, specifications, and conditions are satisfactory and we hereby accept. Greenery Productions is authorized to do the work as specified. Payment will be made as outlined above. All sums payable under this contract are payable at 1751 Director's Row, Orlando, FL 32809. All guarantees and services will terminate at Greenery Productions' option thirty days after the first of the month if payment is not received.`,
+  `In the event of default by the client, Greenery Productions shall be entitled to recover all reasonable costs of collections, including attorney fees. In the event of cancellation prior to the termination date, Greenery Productions requires 30 days' notice in writing and the client will be responsible for paying the remaining agreement amount. By signing this agreement, the client agrees to all services listed above. This agreement shall be governed by and construed according to the laws of the State of Florida.`,
+  `Convenience Fee — Our pricing includes a 2% discount; the discount will be rescinded if this invoice is paid with a credit card.`,
+];
+
+export function ClientProposalBody({ data }: { data: SummaryResponse }) {
+  const plants = useMemo(
+    () => data.items.filter((i) => i.category === "plant"),
+    [data.items],
+  );
+  const pots = data.items.filter((i) => i.category === "pot");
+  const totalPlantPhotos = plants.reduce(
+    (n, p) => n + (p.photos?.length ?? 0),
+    0,
+  );
+  const catalogFallbackByPlantId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of plants) {
+      if ((p.photos?.length ?? 0) > 0) continue;
+      const path = pickCatalogFallbackPath(p.name);
+      if (path) m.set(p.id, path);
+    }
+    return m;
+  }, [plants]);
+  const catalogFallbackCount = catalogFallbackByPlantId.size;
+  const today = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const contact =
+    data.proposal.contactName?.trim() || "—";
+  const submitted =
+    data.proposal.submittedBy?.trim() || "—";
+  const phone =
+    data.client.phone?.trim() || "—";
+  const jobLocation = data.location?.name || "—";
+
+  return (
+    <div className="proposal-html-root">
+      <div className="page">
+        <div className="proposal-print-main">
+          <div className="header-border flex flex-wrap items-start justify-between gap-4">
+            <div className="logo-container">
+              {/* Same asset name as proposal-client.html */}
+              <Image
+                src="/greenery-director-chair-plant-removebg-preview.png"
+                width={120}
+                height={120}
+                alt="Greenery Productions — director chair with plant"
+                className="logo-icon"
+                unoptimized
+              />
+              <div>
+                <h1 className="text-xl font-bold leading-tight tracking-tight text-green-900">
+                  GREENERY
+                </h1>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500">
+                  Productions
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <h2 className="mb-2 text-2xl font-light text-gray-400">
+                Proposal and Acceptance
+              </h2>
+              <div className="text-[11px] leading-tight">
+                <p className="font-bold">1751 Director&apos;s Row</p>
+                <p>Orlando, Florida 32809</p>
+                <p>Phone: (407) 363-9111</p>
+                <p>Fax: (407) 363-9331</p>
+                <p className="italic text-green-700">
+                  www.greeneryproductions.com
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4 grid grid-cols-2 gap-8">
+            <div>
+              <div className="section-title mt-0">Proposal Submitted To</div>
+              <div className="space-y-0.5">
+                <p className="text-base font-bold text-green-800">
+                  {data.client.name}
+                </p>
+                {data.location?.address ? (
+                  <p className="text-[11px] text-gray-600">
+                    {data.location.address}
+                  </p>
+                ) : null}
+                <div className="pt-1">
+                  <span className="text-[9px] font-bold uppercase text-gray-400">
+                    Date:
+                  </span>
+                  <span className="ml-2 text-[11px]">{today}</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="section-title mt-0">Project Details</div>
+              <div className="grid grid-cols-2 gap-y-0.5 text-[11px]">
+                <span className="font-bold text-gray-500">Contact:</span>
+                <span>{contact}</span>
+                <span className="font-bold text-gray-500">Phone:</span>
+                <span>{phone}</span>
+                <span className="font-bold text-gray-500">Job Location:</span>
+                <span>{jobLocation}</span>
+                <span className="font-bold text-gray-500">Submitting By:</span>
+                <span>{submitted}</span>
+                <span className="font-bold text-gray-500">Proposal #:</span>
+                <span>{data.proposal.number}</span>
+                <span className="font-bold text-gray-500">
+                  Maintenance program:
+                </span>
+                <span>
+                  {maintenanceProgramLabel(data.proposal.maintenanceTier)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="section-title">Interior Plant Schedule</div>
+          <table className="doc-table">
+            <thead>
+              <tr>
+                <th style={{ width: "40%" }}>Location / Area</th>
+                <th style={{ width: "10%" }} className="text-center">
+                  Qty
+                </th>
+                <th style={{ width: "35%" }}>Plant Schedule / Description</th>
+                <th style={{ width: "15%" }} className="text-right">
+                  Pot Size / Ht
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {plants.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="text-gray-500">
+                    No plant schedule lines.
+                  </td>
+                </tr>
+              ) : (
+                plants.map((row) => (
+                  <tr key={row.id}>
+                    <td className="font-semibold">{row.area || "—"}</td>
+                    <td className="text-center">{row.qty}</td>
+                    <td>{displayPlantLabel(row.name)}</td>
+                    <td className="text-right italic text-gray-500">
+                      {potSizeFromName(row.name)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+
+          {pots.length > 0 ? (
+            <>
+              <div className="section-title">Planters &amp; Containers</div>
+              <table className="doc-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: "40%" }}>Location / Area</th>
+                    <th style={{ width: "10%" }} className="text-center">
+                      Qty
+                    </th>
+                    <th style={{ width: "35%" }}>Description</th>
+                    <th style={{ width: "15%" }} className="text-right">
+                      Pot
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pots.map((row) => (
+                    <tr key={row.id}>
+                      <td className="font-semibold">{row.area || "—"}</td>
+                      <td className="text-center">{row.qty}</td>
+                      <td>{displayPlantLabel(row.name)}</td>
+                      <td className="text-right text-[10px] text-gray-600">
+                        {row.clientOwnsPot ? "Client-owned" : "Included"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          ) : null}
+
+          <div className="section-title mb-2">Proposed Plants &amp; Containers</div>
+          <div className="plant-gallery-wrap w-full">
+            <p className="mb-2 text-[10px] leading-snug text-gray-500">
+              {totalPlantPhotos > 0
+                ? `${totalPlantPhotos} reference photo(s) from this proposal appear below, grouped by plant with every uploaded image. Labels match the schedule.`
+                : catalogFallbackCount > 0
+                  ? "No custom photos were saved on this proposal. Below, Greenery catalog reference images are shown where the plant line matches the internal library (same matching logic as the builder photo picker)."
+                  : "No reference photos were added in the proposal and no catalog match was found for some lines. The blocks show plant names only; upload photos in the builder or add catalog photos on the Photos step."}
+            </p>
+
+            <div
+              className="plant-photo-groups-stack plant-photo-groups-stack--reference"
+              aria-label="Plant reference photos"
+            >
+              {plants.length === 0 ? (
+                <p className="text-center text-xs text-gray-400">
+                  No plants to preview.
+                </p>
+              ) : (
+                plants.map((row) => (
+                  <PlantPhotoGroup
+                    key={row.id}
+                    row={row}
+                    includeAreaInMeta
+                    fallbackCatalogSrc={catalogFallbackByPlantId.get(row.id)}
+                  />
+                ))
+              )}
+            </div>
+
+          </div>
+
+          <div className="client-breakdown mt-8 w-full">
+            <table className="breakdown-table purchase-summary" aria-label="Purchase summary">
+              <thead>
+                <tr>
+                  <th colSpan={2}>Purchase Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Plant and Planter Purchase, Including Materials, Supplies,
+                    Labor, Delivery, Installation and Freight
+                  </td>
+                  <td className="amount font-semibold text-green-900">
+                    {money.format(data.calculations.priceToClientInitial)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <table
+              className="breakdown-table monthly-summary mt-5"
+              aria-label="Monthly summary"
+            >
+              <thead>
+                <tr>
+                  <th colSpan={2}>Monthly Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Guarantee Monthly Maintenance</td>
+                  <td className="amount font-semibold text-green-900">
+                    {money.format(data.calculations.maintenanceMonthly)}
+                  </td>
+                </tr>
+                {data.rotations.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      {displayPlantLabel(r.plantName)} Rotation ~ billed monthly
+                    </td>
+                    <td className="amount font-semibold text-green-900">
+                      {money.format(rotationMonthlyBilled(r))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="payment-terms-bar mt-5">
+              <strong>Payment Terms:</strong> 50% DUE UPON PROPOSAL ACCEPTANCE /
+              50% DUE UPON PROJECT COMPLETION
+            </div>
+            <div className="tax-note-bar mt-2">
+              Note: Prices do not include sales tax.
+            </div>
+          </div>
+
+          <div className="terms-legal-full mt-8 w-full border-t border-gray-200 pt-6">
+            <div className="section-title mt-0 mb-3">
+              Terms &amp; Legal Conditions
+            </div>
+            {TERMS_PARAGRAPHS.slice(0, -1).map((p, idx) => (
+              <p key={idx}>{p}</p>
+            ))}
+            <p className="font-semibold text-gray-900 not-italic">
+              {TERMS_PARAGRAPHS[TERMS_PARAGRAPHS.length - 1]}
+            </p>
+          </div>
+        </div>
+
+        <div className="proposal-print-footer mt-8">
+          <div className="grid grid-cols-2 gap-x-12">
+            <div className="space-y-6">
+              <div>
+                <div className="signature-line" />
+                <p className="mt-1 text-[8px] font-bold uppercase text-gray-400">
+                  Signature of Acceptance
+                </p>
+              </div>
+              <div>
+                <div className="signature-line" />
+                <p className="mt-1 text-[8px] font-bold uppercase text-gray-400">
+                  Print Name
+                </p>
+              </div>
+            </div>
+            <div className="space-y-6">
+              <div>
+                <div className="signature-line" />
+                <p className="mt-1 text-[8px] font-bold uppercase text-gray-400">
+                  Date
+                </p>
+              </div>
+              <div>
+                <div className="signature-line" />
+                <p className="mt-1 text-[8px] font-bold uppercase text-gray-400">
+                  P.O. Number
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 border-t pt-2 text-center">
+            <p className="text-[8px] italic uppercase tracking-widest text-gray-300">
+              Note: This proposal may be withdrawn by Greenery Productions if
+              not accepted within 30 days.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,40 @@
+[
+  {
+    "id": "dc8b5089-3874-4b5b-95ee-91464e33c451",
+    "name": "Mateo Salazar",
+    "phone": "0967320335",
+    "email": "salazar9bg@gmail.com",
+    "createdAt": "2026-04-20T14:07:16.745Z",
+    "updatedAt": "2026-04-20T14:07:16.745Z"
+  },
+  {
+    "id": "dff07c59-ecaf-405e-b17f-12fa4c192ed8",
+    "name": "Andy",
+    "email": "andy@gmail.com",
+    "createdAt": "2026-04-20T14:07:40.748Z",
+    "updatedAt": "2026-04-20T14:07:40.748Z"
+  },
+  {
+    "id": "6a96c642-679f-49b0-903d-9fd479c9d00a",
+    "name": "Manuel",
+    "email": "mau@gmail.com",
+    "createdAt": "2026-04-20T14:49:18.726Z",
+    "updatedAt": "2026-04-20T14:49:18.726Z"
+  },
+  {
+    "id": "2d093424-b7ec-4feb-afe4-eb1e3f50d3b8",
+    "name": "Manuel",
+    "phone": "036578788",
+    "email": "mau@gmail.com",
+    "createdAt": "2026-04-20T14:49:25.166Z",
+    "updatedAt": "2026-04-20T14:49:25.166Z"
+  },
+  {
+    "id": "162c9705-b3ae-4021-b4cc-09088104bdce",
+    "name": "Roberto",
+    "phone": "5985222233",
+    "email": "roberto@gmail.com",
+    "createdAt": "2026-04-20T14:54:40.552Z",
+    "updatedAt": "2026-04-20T14:54:40.552Z"
+  }
+]

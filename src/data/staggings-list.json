@@ -1,0 +1,132 @@
+{
+	"stagings": [
+		{
+			"id": 1,
+			"name": "Hard Foam",
+			"description": "Espuma flex",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 8.98
+				},
+				{
+					"name": "Home Depot",
+					"price": 7.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776620632/staging1-espuma-flex_fkxlcd.png"
+		},
+		{
+			"id": 2,
+			"name": "Soft Foam",
+			"description": "Espuma suave u oasis",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 5.98
+				},
+				{
+					"name": "Home Depot",
+					"price": 4.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776620632/staging2-oasis_xil2oj.png"
+		},
+		{
+			"id": 3,
+			"name": "Moss",
+			"description": "Synthetic moss",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 9.98
+				},
+				{
+					"name": "Home Depot",
+					"price": 8.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776620632/staging3-moss_vn3vgk.png"
+		},
+		{
+			"id": 4,
+			"name": "Green Moss",
+			"description": "Real green moss",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 14.98
+				},
+				{
+					"name": "Home Depot",
+					"price": 13.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776620632/staging4-green-moss_qjnjh7.png"
+		},
+		{
+			"id": 5,
+			"name": "Soil",
+			"description": "Soil",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 18.98
+				},
+				{
+					"name": "Home Depot",
+					"price": 17.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776621007/staging5-soil_krl9z5.png"
+		},
+		{
+			"id": 6,
+			"name": "Pine Bark",
+			"description": "Pine bark",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 7.48
+				},
+				{
+					"name": "Home Depot",
+					"price": 6.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776621158/staging6-pine-bark_znuoro.png"
+		},
+		{
+			"id": 7,
+			"name": "Mulch",
+			"description": "Pine bark mulch",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 4.48
+				},
+				{
+					"name": "Home Depot",
+					"price": 3.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776621396/staging7-mulch_cccoly.png"
+		},
+		{
+			"id": 8,
+			"name": "Peanut Shell",
+			"description": "Flex foam peanut shell",
+			"providers": [
+				{
+					"name": "Lowe's",
+					"price": 12.98
+				},
+				{
+					"name": "Home Depot",
+					"price": 11.97
+				}
+			],
+			"image": "https://res.cloudinary.com/dufos4tti/image/upload/q_auto/f_auto/v1776621679/staging8-peanut-shell_reemcw.png"
+		}
+	]
+}
