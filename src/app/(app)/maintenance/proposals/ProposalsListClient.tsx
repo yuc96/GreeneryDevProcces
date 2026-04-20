@@ -159,7 +159,7 @@ export function ProposalsListClient() {
                       </td>
                       <td className="px-4 py-3">
                         <Link
-                          href={`/maintenance/proposals/new?proposalId=${encodeURIComponent(r.id)}&wizardStep=0`}
+                          href={`/maintenance/proposals/new?proposalId=${encodeURIComponent(r.id)}&wizardStep=${r.status === "approved" ? 5 : 0}`}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900"
                         >
                           <Eye className="h-3.5 w-3.5" />

@@ -236,8 +236,18 @@ export class ProposalsStore {
     return rows;
   }
 
+  private assertEditable(p: ProposalEntity): void {
+    if (p.status === "approved") {
+      throw new HttpError(
+        409,
+        "Approved proposals are read-only. Create a new proposal or reject to edit.",
+      );
+    }
+  }
+
   patchGeneral(id: string, dto: PatchProposalGeneralInput): ProposalEntity {
     const p = this.findOne(id);
+    this.assertEditable(p);
     if (dto.contactName !== undefined) p.contactName = dto.contactName;
     if (dto.submittedBy !== undefined) p.submittedBy = dto.submittedBy;
     if (dto.maintenanceTier !== undefined) p.maintenanceTier = dto.maintenanceTier;
@@ -312,6 +322,7 @@ export class ProposalsStore {
 
   replaceItems(id: string, items: ProposalItemInput[]): ProposalEntity {
     const p = this.findOne(id);
+    this.assertEditable(p);
     const prevById = new Map(p.items.map((x) => [x.id, x] as const));
     p.items = items.map((row) => {
       const keepId =
@@ -406,6 +417,7 @@ export class ProposalsStore {
 
   replaceRotations(id: string, rotations: ProposalRotationInput[]): ProposalEntity {
     const p = this.findOne(id);
+    this.assertEditable(p);
     p.rotations = rotations.map((r) => ({
       id: r.id && r.id.trim() ? r.id.trim() : randomUUID(),
       itemId: r.itemId,

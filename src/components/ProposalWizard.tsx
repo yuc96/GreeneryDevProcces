@@ -502,6 +502,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const autoSourceDoneRef = useRef(false);
 
   const [proposalId, setProposalId] = useState<string | null>(null);
+  const [proposalStatus, setProposalStatus] = useState<Proposal["status"]>("draft");
 
   const [engineConfig, setEngineConfig] = useState<PricingEngineConfig>(
     DEFAULT_PRICING_ENGINE_CONFIG,
@@ -542,6 +543,17 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     null,
   );
 
+  const isProposalLocked = proposalStatus === "approved";
+
+  function isProposalNotFoundError(e: unknown): boolean {
+    if (typeof e === "object" && e !== null) {
+      const maybeStatus = (e as { status?: unknown; statusCode?: unknown }).status;
+      const maybeStatusCode = (e as { status?: unknown; statusCode?: unknown }).statusCode;
+      if (maybeStatus === 404 || maybeStatusCode === 404) return true;
+    }
+    return toErrorMessage(e).toLowerCase().includes("not found");
+  }
+
   async function openPricingSettings() {
     setError(null);
     try {
@@ -563,6 +575,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     try {
       const p = await apiGet<Proposal>(`/proposals/${id}`);
       setProposalId(p.id);
+      setProposalStatus(p.status);
       setClientId(p.clientId);
       setLocationId(p.locationId);
       setSaleType(
@@ -593,6 +606,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       } else {
         setRequirementLines([emptyRequirementLine()]);
       }
+      return p;
     } catch (e) {
       setError(toErrorMessage(e));
       throw e;
@@ -673,19 +687,34 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
           )
         : null;
     void hydrateProposalFromServer(urlProposalId)
-      .then(() => {
+      .then((p) => {
         if (cancelled) return;
+        if (p.status === "approved") {
+          setStep(5);
+          return;
+        }
         if (stepNum !== null) {
           setStep(stepNum);
         }
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(toErrorMessage(e));
+        if (cancelled) return;
+        if (isProposalNotFoundError(e)) {
+          setProposalId(null);
+          setProposalStatus("draft");
+          setError(
+            "This proposal was not found. It may have been removed or the server restarted. Continue from General to create a new one.",
+          );
+          router.replace("/maintenance/proposals/new?wizardStep=1");
+          setStep(1);
+          return;
+        }
+        setError(toErrorMessage(e));
       });
     return () => {
       cancelled = true;
     };
-  }, [urlProposalId, urlWizardStepRaw, hydrateProposalFromServer]);
+  }, [urlProposalId, urlWizardStepRaw, hydrateProposalFromServer, router]);
 
   useEffect(() => {
     if (!selectedClient?.locations.length) return;
@@ -741,6 +770,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         body: JSON.stringify({ clientId, locationId, saleType }),
       });
       setProposalId(p.id);
+      setProposalStatus(p.status);
       if (p.contactName) setContactName(p.contactName);
       if (p.submittedBy) setSubmittedBy(p.submittedBy);
       setMaintenanceTier(p.maintenanceTier);
@@ -903,6 +933,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         `/proposals/${proposalId}/summary`,
       );
       setSummary(s);
+      setProposalStatus(s.proposal.status);
       setSendEmail((prev) => prev || s.client.email);
       if (s.requirementLines !== undefined) {
         setRequirementLines(
@@ -969,6 +1000,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function goNext() {
+    if (isProposalLocked) return;
     setError(null);
     try {
       if (step === 0) {
@@ -1000,6 +1032,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   }
 
   function goBack() {
+    if (isProposalLocked) return;
     if (step === 1 && proposalId) {
       void patchProposalGeneral(proposalId, { quiet: true }).catch(() => {});
     }
@@ -1954,6 +1987,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   const nextDisabled =
     busy ||
+    isProposalLocked ||
     (step === 0 && !requirementsStepOk) ||
     (step === 1 && (!clientId || !locationId)) ||
     (step === 5 && !summary) ||
@@ -1998,8 +2032,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 <div key={key} className="flex items-center">
                   <button
                     type="button"
-                    disabled={i > step}
-                    onClick={() => i <= step && setStep(i)}
+                    disabled={isProposalLocked ? i !== step : i > step}
+                    onClick={() => !isProposalLocked && i <= step && setStep(i)}
                     className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition md:text-sm ${
                       active
                         ? `${PRIMARY_CLASS} text-white shadow-sm`
@@ -2032,6 +2066,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
             role="alert"
           >
             {error}
+          </div>
+        ) : null}
+        {isProposalLocked ? (
+          <div className="no-print mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
+            This proposal is accepted, so it is in view-only mode.
           </div>
         ) : null}
 
@@ -4205,7 +4244,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 md:px-6">
           <button
             type="button"
-            disabled={step === 0 || busy}
+            disabled={step === 0 || busy || isProposalLocked}
             onClick={goBack}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
           >
