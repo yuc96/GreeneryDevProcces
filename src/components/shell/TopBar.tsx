@@ -16,11 +16,11 @@ export function TopBar({
   onToggleDark: () => void;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0b0f19] px-4 text-slate-200">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 text-gray-700 dark:border-slate-800/80 dark:bg-[#0b0f19] dark:text-slate-200">
       <button
         type="button"
         onClick={onToggleSidebar}
-        className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-white"
+        className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white"
         aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
       >
         {sidebarCollapsed ? (
@@ -32,7 +32,7 @@ export function TopBar({
       <button
         type="button"
         onClick={onToggleDark}
-        className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-white"
+        className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white"
         aria-label="Toggle theme"
       >
         {dark ? (

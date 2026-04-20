@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Fragment,
   useCallback,
@@ -439,6 +439,7 @@ function potSizeFromPlantName(name: string): string {
 }
 
 export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const urlProposalId = searchParams.get("proposalId")?.trim() ?? "";
   const urlWizardStepRaw = searchParams.get("wizardStep");
@@ -541,12 +542,20 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     null,
   );
 
-  const pricingReturnHref = useMemo(() => {
-    const q = new URLSearchParams();
-    q.set("wizardStep", "1");
-    if (proposalId) q.set("proposalId", proposalId);
-    return `/maintenance/proposals/new?${q.toString()}`;
-  }, [proposalId]);
+  async function openPricingSettings() {
+    setError(null);
+    try {
+      const id = await ensureProposalCreated();
+      await patchProposalGeneral(id, { quiet: true });
+      const q = new URLSearchParams();
+      q.set("wizardStep", "1");
+      q.set("proposalId", id);
+      const returnTo = `/maintenance/proposals/new?${q.toString()}`;
+      router.push(`/admin/pricing?returnTo=${encodeURIComponent(returnTo)}`);
+    } catch (e) {
+      setError(toErrorMessage(e));
+    }
+  }
 
   const hydrateProposalFromServer = useCallback(async (id: string) => {
     setError(null);
@@ -2197,17 +2206,19 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     Proposal pricing &amp; calculation defaults
                   </p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-600 dark:text-gray-400">
-                    Opens in a new browser tab with sections grouped by topic.
+                    Opens in this same view with sections grouped by topic.
                     Use <strong>Save and return to General</strong> when done, or{" "}
                     <strong>Back to General</strong> to leave without saving.
                   </p>
                 </div>
-                <Link
-                  href={`/admin/pricing?returnTo=${encodeURIComponent(pricingReturnHref)}`}
+                <button
+                  type="button"
+                  onClick={() => void openPricingSettings()}
+                  disabled={busy}
                   className={`inline-flex shrink-0 items-center justify-center rounded-lg px-3 py-2 text-center text-xs font-semibold text-white shadow-sm sm:text-sm ${PRIMARY_CLASS}`}
                 >
                   Open pricing settings
-                </Link>
+                </button>
               </div>
 
               <div className="grid gap-5 md:grid-cols-2">
