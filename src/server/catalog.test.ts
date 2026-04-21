@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { listPlants } from "./catalog";
 
 describe("listPlants seed requiresRotation", () => {
-  test("Orchids at 17 inches are flagged for rotation", () => {
+  it("Orchids at 17 inches are flagged for rotation", () => {
     const orchids17 = listPlants().filter(
       (p) =>
         p.commonName === "Orchids" &&
@@ -15,7 +15,7 @@ describe("listPlants seed requiresRotation", () => {
     }
   });
 
-  test("non-orchid plants are not flagged by orchid-only seed rule", () => {
+  it("non-orchid plants are not flagged by orchid-only seed rule", () => {
     const kentia = listPlants().find((p) => p.commonName === "Kentia Palm");
     expect(kentia).toBeDefined();
     expect(kentia!.requiresRotation).toBe(false);

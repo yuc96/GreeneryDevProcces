@@ -6,11 +6,10 @@ import type {
 } from "../domain";
 import { PROPOSAL_LABOR_KEYS } from "../domain";
 import type { PricingEngineConfig } from "./engine-schema";
-import {
-  cppForDiameter,
-  parseSizeInchesFromText,
-  peopleNeededForQtyAndDiameter,
-} from "./cpp-model";
+import type { LaborEngineConfig } from "./labor-engine-schema";
+import { DEFAULT_LABOR_ENGINE_CONFIG } from "./labor-engine-schema";
+import { parseSizeInchesFromText } from "./cpp-model";
+import { installOnePersonMinutesForPlantUnits } from "./labor-engine/plant-install-minutes";
 
 export type LaborLineKey = ProposalLaborLineKey;
 export type LaborLineState = ProposalLaborLineEntity;
@@ -28,6 +27,10 @@ export interface ProposalEngineInput {
   laborLines: LaborLineState[];
   commissionPct: number;
   commissionBeneficiaries: number;
+}
+
+export interface ComputeProposalOptions {
+  laborEngineConfig?: LaborEngineConfig;
 }
 
 export interface CategoryTotals {
@@ -95,20 +98,20 @@ function freightPctForCategory(
   return config.materialFreightPct;
 }
 
+/** Install minutes for a single plant at the given diameter (PWU time table). */
 export function installMinutesForInches(
   inches: number | null,
   config: PricingEngineConfig,
+  laborCfg: LaborEngineConfig = DEFAULT_LABOR_ENGINE_CONFIG,
 ): number {
-  const cpp = cppForDiameter(inches, {
-    cppByDiameterPoints: config.laborAuto.cppByDiameterPoints,
-    cppInterpolationMode: config.laborAuto.cppInterpolationMode,
-    missingDiameterFallbackCpp: config.laborAuto.missingDiameterFallbackCpp,
-    missingDiameterFallbackMinEmployees:
-      config.laborAuto.missingDiameterFallbackMinEmployees,
-    missingDiameterTwoPeopleThresholdQty:
-      config.laborAuto.missingDiameterTwoPeopleThresholdQty,
-  });
-  return config.laborAuto.targetClockMinutesPerPerson / cpp;
+  void config;
+  return installOnePersonMinutesForPlantUnits(
+    1,
+    inches,
+    undefined,
+    parseSizeInchesFromText,
+    laborCfg,
+  );
 }
 
 function overheadFactorForSum(
@@ -152,7 +155,9 @@ export function truckFeeForPlantCount(
 export function computeProposal(
   config: PricingEngineConfig,
   input: ProposalEngineInput,
+  options?: ComputeProposalOptions,
 ): ComputeProposalResult {
+  const laborCfg = options?.laborEngineConfig ?? DEFAULT_LABOR_ENGINE_CONFIG;
   const totals = {
     plants: { wholesale: 0, retail: 0, freight: 0 },
     pots: { wholesale: 0, retail: 0, freight: 0 },
@@ -189,17 +194,13 @@ export function computeProposal(
         typeof item.sizeInches === "number" && Number.isFinite(item.sizeInches)
           ? item.sizeInches
           : parseSizeInchesFromText(item.name);
-      const peopleForItem = peopleNeededForQtyAndDiameter(item.qty, inches, {
-        cppByDiameterPoints: config.laborAuto.cppByDiameterPoints,
-        cppInterpolationMode: config.laborAuto.cppInterpolationMode,
-        missingDiameterFallbackCpp: config.laborAuto.missingDiameterFallbackCpp,
-        missingDiameterFallbackMinEmployees:
-          config.laborAuto.missingDiameterFallbackMinEmployees,
-        missingDiameterTwoPeopleThresholdQty:
-          config.laborAuto.missingDiameterTwoPeopleThresholdQty,
-      });
-      totalInstallMinutes +=
-        peopleForItem * config.laborAuto.targetClockMinutesPerPerson;
+      totalInstallMinutes += installOnePersonMinutesForPlantUnits(
+        item.qty,
+        inches,
+        item.name,
+        parseSizeInchesFromText,
+        laborCfg,
+      );
     } else if (item.category === "pot") {
       totals.pots.wholesale += effW;
       totals.pots.retail += retail;

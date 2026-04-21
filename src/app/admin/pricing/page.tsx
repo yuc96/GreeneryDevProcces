@@ -12,6 +12,7 @@ import type {
 } from "@/server/pricing/engine-schema";
 import { DEFAULT_PRICING_ENGINE_CONFIG } from "@/server/pricing/engine-schema";
 import stagingsData from "@/data/staggings-list.json";
+import { LaborEngineConfigForm } from "./LaborEngineConfigForm";
 
 const LABOR_STEP_LABELS: Record<
   "load" | "driveToJob" | "unload" | "install" | "cleanUp" | "driveFromJob",
@@ -98,7 +99,8 @@ const PRICING_CONFIG_TABS: {
   {
     id: "install",
     label: "Delivery & install labor",
-    description: "CPP(d) staffing points, interpolation, fallback, and labor split.",
+    description:
+      "Labor crew rules, install minutes, and drive fallbacks (technical PWU defaults live in code).",
   },
   {
     id: "staging",
@@ -645,9 +647,33 @@ function AdminPricingPageInner() {
             role="tabpanel"
             aria-labelledby="pricing-tab-install"
           >
+            <section className="rounded-xl border border-emerald-200/80 bg-white p-5 shadow-sm dark:border-emerald-900/40 dark:bg-gray-900">
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                Labor engine (PWU)
+              </h2>
+              <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+                Business-facing labor options only. Values are saved to{" "}
+                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
+                  data/labor-engine.config.json
+                </code>{" "}
+                when you use <strong>Save labor settings</strong> in the form
+                (separate from the main <strong>Save</strong>, which only updates{" "}
+                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
+                  pricing-engine.config.json
+                </code>
+                ).
+              </p>
+              <LaborEngineConfigForm />
+            </section>
+
+            <details className="rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-200 dark:border-gray-800 dark:bg-gray-900 dark:open:ring-gray-700">
+              <summary className="cursor-pointer list-none p-4 text-sm font-semibold text-gray-700 marker:content-none dark:text-gray-300 [&::-webkit-details-marker]:hidden">
+                Legacy CPP / split fields (not used by the PWU motor)
+              </summary>
+              <div className="space-y-6 border-t border-gray-100 px-5 pb-5 pt-2 dark:border-gray-800">
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-            Auto Labor (CPP staffing model)
+            Auto Labor (CPP staffing model) — legacy
           </h2>
           <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
             <strong>Formula:</strong>{" "}
@@ -1075,6 +1101,8 @@ function AdminPricingPageInner() {
             ))}
           </div>
         </section>
+              </div>
+            </details>
 
           </div>
         ) : null}

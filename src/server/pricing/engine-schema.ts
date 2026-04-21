@@ -562,41 +562,34 @@ export function mergeWithPricingDefaults(
   if (!partial || typeof partial !== "object") {
     return DEFAULT_PRICING_ENGINE_CONFIG;
   }
+  const ext = partial as Record<string, unknown>;
+  const plantingFeeRaw = ext.plantingWithoutPotFeePerPlant;
+  const plantingWithoutPotFeePerPlant =
+    typeof plantingFeeRaw === "number" &&
+    Number.isFinite(plantingFeeRaw) &&
+    plantingFeeRaw >= 0
+      ? plantingFeeRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.plantingWithoutPotFeePerPlant;
+  const guaranteeRaw = ext.guaranteeAnnualAddOnPct;
+  const guaranteeAnnualAddOnPct =
+    typeof guaranteeRaw === "number" &&
+    Number.isFinite(guaranteeRaw) &&
+    guaranteeRaw >= 0
+      ? guaranteeRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.guaranteeAnnualAddOnPct;
+  const replacementRaw = ext.replacementReservePct;
+  const replacementReservePct =
+    typeof replacementRaw === "number" &&
+    Number.isFinite(replacementRaw) &&
+    replacementRaw >= 0
+      ? replacementRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.replacementReservePct;
   const merged = {
     ...DEFAULT_PRICING_ENGINE_CONFIG,
     ...partial,
-    plantingWithoutPotFeePerPlant:
-      typeof (partial as { plantingWithoutPotFeePerPlant?: unknown })
-        .plantingWithoutPotFeePerPlant === "number" &&
-      Number.isFinite(
-        (partial as { plantingWithoutPotFeePerPlant?: number })
-          .plantingWithoutPotFeePerPlant,
-      ) &&
-      (partial as { plantingWithoutPotFeePerPlant?: number })
-        .plantingWithoutPotFeePerPlant >= 0
-        ? (partial as { plantingWithoutPotFeePerPlant: number })
-            .plantingWithoutPotFeePerPlant
-        : DEFAULT_PRICING_ENGINE_CONFIG.plantingWithoutPotFeePerPlant,
-    guaranteeAnnualAddOnPct:
-      typeof (partial as { guaranteeAnnualAddOnPct?: unknown })
-        .guaranteeAnnualAddOnPct === "number" &&
-      Number.isFinite(
-        (partial as { guaranteeAnnualAddOnPct?: number })
-          .guaranteeAnnualAddOnPct,
-      ) &&
-      (partial as { guaranteeAnnualAddOnPct?: number }).guaranteeAnnualAddOnPct >=
-        0
-        ? (partial as { guaranteeAnnualAddOnPct: number }).guaranteeAnnualAddOnPct
-        : DEFAULT_PRICING_ENGINE_CONFIG.guaranteeAnnualAddOnPct,
-    replacementReservePct:
-      typeof (partial as { replacementReservePct?: unknown })
-        .replacementReservePct === "number" &&
-      Number.isFinite(
-        (partial as { replacementReservePct?: number }).replacementReservePct,
-      ) &&
-      (partial as { replacementReservePct?: number }).replacementReservePct >= 0
-        ? (partial as { replacementReservePct: number }).replacementReservePct
-        : DEFAULT_PRICING_ENGINE_CONFIG.replacementReservePct,
+    plantingWithoutPotFeePerPlant,
+    guaranteeAnnualAddOnPct,
+    replacementReservePct,
     overheadBrackets:
       Array.isArray((partial as { overheadBrackets?: unknown }).overheadBrackets) &&
       (partial as { overheadBrackets: unknown[] }).overheadBrackets.length === 4
@@ -738,18 +731,18 @@ function normalizeCppPoints(
       const twoPeopleThresholdQty = Number(minRaw.twoPeopleThresholdQty);
       if (!Number.isFinite(diameterInches) || !Number.isFinite(cpp)) return null;
       if (diameterInches < 0 || cpp <= 0) return null;
-      return {
+      const point: CppByDiameterPoint = {
         diameterInches,
         cpp,
         minEmployees:
           Number.isFinite(minEmployees) && minEmployees >= 1
             ? Math.floor(minEmployees)
             : 1,
-        twoPeopleThresholdQty:
-          Number.isFinite(twoPeopleThresholdQty) && twoPeopleThresholdQty > 0
-            ? twoPeopleThresholdQty
-            : undefined,
       };
+      if (Number.isFinite(twoPeopleThresholdQty) && twoPeopleThresholdQty > 0) {
+        point.twoPeopleThresholdQty = twoPeopleThresholdQty;
+      }
+      return point;
     })
     .filter((row): row is CppByDiameterPoint => row != null)
     .sort((a, b) => a.diameterInches - b.diameterInches);

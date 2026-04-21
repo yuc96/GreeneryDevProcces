@@ -22,6 +22,10 @@ import {
   type RotationLineState,
 } from "./pricing/compute-proposal";
 import {
+  getCachedLaborEngineConfig,
+  loadLaborEngineConfig,
+} from "./pricing/labor-config-store";
+import {
   getCachedPricingConfig,
   loadPricingConfig,
 } from "./pricing/pricing-config-store";
@@ -326,13 +330,17 @@ export class ProposalsStore {
       syncLegacyCommissionBeneficiaryFields(p);
     }
     const cfg = getCachedPricingConfig();
-    const eng = computeProposal(cfg, {
-      items: p.items,
-      rotations: p.rotations.map(rotationLineFromEntity),
-      laborLines: p.laborLines,
-      commissionPct: p.commissionPct,
-      commissionBeneficiaries: p.commissionBeneficiaries,
-    });
+    const eng = computeProposal(
+      cfg,
+      {
+        items: p.items,
+        rotations: p.rotations.map(rotationLineFromEntity),
+        laborLines: p.laborLines,
+        commissionPct: p.commissionPct,
+        commissionBeneficiaries: p.commissionBeneficiaries,
+      },
+      { laborEngineConfig: getCachedLaborEngineConfig() },
+    );
     p.laborCost = eng.laborCost;
     p.updatedAt = new Date().toISOString();
     return p;
@@ -392,13 +400,17 @@ export class ProposalsStore {
     });
     this.syncRotationsFromPlants(p);
     const cfg = getCachedPricingConfig();
-    const eng = computeProposal(cfg, {
-      items: p.items,
-      rotations: p.rotations.map(rotationLineFromEntity),
-      laborLines: p.laborLines,
-      commissionPct: p.commissionPct,
-      commissionBeneficiaries: p.commissionBeneficiaries,
-    });
+    const eng = computeProposal(
+      cfg,
+      {
+        items: p.items,
+        rotations: p.rotations.map(rotationLineFromEntity),
+        laborLines: p.laborLines,
+        commissionPct: p.commissionPct,
+        commissionBeneficiaries: p.commissionBeneficiaries,
+      },
+      { laborEngineConfig: getCachedLaborEngineConfig() },
+    );
     p.laborCost = eng.laborCost;
     p.updatedAt = new Date().toISOString();
     return p;
@@ -452,13 +464,17 @@ export class ProposalsStore {
       truckFee: r.truckFee,
     }));
     const cfg = getCachedPricingConfig();
-    const eng = computeProposal(cfg, {
-      items: p.items,
-      rotations: p.rotations.map(rotationLineFromEntity),
-      laborLines: p.laborLines,
-      commissionPct: p.commissionPct,
-      commissionBeneficiaries: p.commissionBeneficiaries,
-    });
+    const eng = computeProposal(
+      cfg,
+      {
+        items: p.items,
+        rotations: p.rotations.map(rotationLineFromEntity),
+        laborLines: p.laborLines,
+        commissionPct: p.commissionPct,
+        commissionBeneficiaries: p.commissionBeneficiaries,
+      },
+      { laborEngineConfig: getCachedLaborEngineConfig() },
+    );
     p.laborCost = eng.laborCost;
     p.updatedAt = new Date().toISOString();
     return p;
@@ -467,13 +483,17 @@ export class ProposalsStore {
   computeSummary(p: ProposalEntity) {
     ensureProposalShape(p);
     const cfg = getCachedPricingConfig();
-    const eng = computeProposal(cfg, {
-      items: p.items,
-      rotations: p.rotations.map(rotationLineFromEntity),
-      laborLines: p.laborLines,
-      commissionPct: p.commissionPct,
-      commissionBeneficiaries: p.commissionBeneficiaries,
-    });
+    const eng = computeProposal(
+      cfg,
+      {
+        items: p.items,
+        rotations: p.rotations.map(rotationLineFromEntity),
+        laborLines: p.laborLines,
+        commissionPct: p.commissionPct,
+        commissionBeneficiaries: p.commissionBeneficiaries,
+      },
+      { laborEngineConfig: getCachedLaborEngineConfig() },
+    );
     return {
       totals: eng.totals,
       laborCost: eng.laborCost,
@@ -679,6 +699,9 @@ export function getProposalsStore(): ProposalsStore {
   if (!globalForStores.__m01_proposalsStore) {
     globalForStores.__m01_proposalsStore = new ProposalsStore(getClientsStore());
     void loadPricingConfig().catch(() => {
+      /* missing file → defaults */
+    });
+    void loadLaborEngineConfig().catch(() => {
       /* missing file → defaults */
     });
   }

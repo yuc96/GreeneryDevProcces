@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PRICING_ENGINE_CONFIG } from "./engine-schema";
+import { DEFAULT_LABOR_ENGINE_CONFIG } from "./labor-engine-schema";
 import {
   computeProposal,
   computeRotationMonthly,
@@ -58,24 +59,21 @@ describe("parseSizeInchesFromText", () => {
   });
 });
 
-describe("installMinutesForInches", () => {
-  it("uses CPP interpolation for intermediate diameter", () => {
-    // 12" is between 10"(CPP=30) and 14"(CPP=20) => CPP=25.
-    expect(installMinutesForInches(12, DEFAULT_PRICING_ENGINE_CONFIG)).toBeCloseTo(
-      120 / 25,
-      5,
-    );
+describe("installMinutesForInches (labor install table)", () => {
+  it("snaps 12 inch to nearest bucket (10 inch = 2 min per plant)", () => {
+    expect(installMinutesForInches(12, DEFAULT_PRICING_ENGINE_CONFIG)).toBe(2);
   });
-  it("uses <=8 point CPP", () => {
-    expect(installMinutesForInches(6, DEFAULT_PRICING_ENGINE_CONFIG)).toBeCloseTo(
-      120 / 50,
-      5,
-    );
+  it("uses 6 inch bucket for 6 inches", () => {
+    expect(installMinutesForInches(6, DEFAULT_PRICING_ENGINE_CONFIG)).toBe(1);
   });
-  it("uses fallback CPP when diameter is missing", () => {
+  it("uses fallback pot size when diameter is missing", () => {
     expect(
       installMinutesForInches(null, DEFAULT_PRICING_ENGINE_CONFIG),
-    ).toBeCloseTo(120 / 1.5, 5);
+    ).toBe(
+      DEFAULT_LABOR_ENGINE_CONFIG.INSTALL_MINUTES_PER_PLANT[
+        DEFAULT_LABOR_ENGINE_CONFIG.simplifiedFallbackPlantSize
+      ],
+    );
   });
 });
 
@@ -93,21 +91,24 @@ describe("computeProposal integration", () => {
     const laborLines = defaultLaborLines().map((l) =>
       l.key === "load" ? { ...l, people: 1, hours: 1 } : l,
     );
-    const res = computeProposal(DEFAULT_PRICING_ENGINE_CONFIG, {
-      items,
-      rotations: [],
-      laborLines,
-      commissionPct: 0,
-      commissionBeneficiaries: 0,
-    });
+    const res = computeProposal(
+      DEFAULT_PRICING_ENGINE_CONFIG,
+      {
+        items,
+        rotations: [],
+        laborLines,
+        commissionPct: 0,
+        commissionBeneficiaries: 0,
+      },
+      { laborEngineConfig: DEFAULT_LABOR_ENGINE_CONFIG },
+    );
     expect(res.totals.plants.freight).toBeCloseTo(
       2 * 10 * DEFAULT_PRICING_ENGINE_CONFIG.plantFreightPct,
       5,
     );
     expect(res.totals.plants.retail).toBeCloseTo(2 * 10 * 2, 5);
     expect(res.laborCost).toBe(35);
-    // qty=2 at 10" => CPP=30 => ceil(2/30)=1 person => 1 * target(120)
-    expect(res.maintenanceBreakdown.totalInstallMinutes).toBe(120);
+    expect(res.maintenanceBreakdown.totalInstallMinutes).toBe(4);
   });
 
   it("uses simplified 1-or-2 staffing thresholds for installation minutes", () => {
@@ -120,14 +121,18 @@ describe("computeProposal integration", () => {
         markup: 2,
       }),
     ];
-    const res = computeProposal(DEFAULT_PRICING_ENGINE_CONFIG, {
-      items,
-      rotations: [],
-      laborLines: defaultLaborLines(),
-      commissionPct: 0,
-      commissionBeneficiaries: 0,
-    });
-    expect(res.maintenanceBreakdown.totalInstallMinutes).toBe(240);
+    const res = computeProposal(
+      DEFAULT_PRICING_ENGINE_CONFIG,
+      {
+        items,
+        rotations: [],
+        laborLines: defaultLaborLines(),
+        commissionPct: 0,
+        commissionBeneficiaries: 0,
+      },
+      { laborEngineConfig: DEFAULT_LABOR_ENGINE_CONFIG },
+    );
+    expect(res.maintenanceBreakdown.totalInstallMinutes).toBe(1000);
   });
 
   it("adds planting-without-pot surcharge per plant", () => {
@@ -141,13 +146,17 @@ describe("computeProposal integration", () => {
         plantingWithoutPot: true,
       }),
     ];
-    const res = computeProposal(DEFAULT_PRICING_ENGINE_CONFIG, {
-      items,
-      rotations: [],
-      laborLines: defaultLaborLines(),
-      commissionPct: 0,
-      commissionBeneficiaries: 0,
-    });
+    const res = computeProposal(
+      DEFAULT_PRICING_ENGINE_CONFIG,
+      {
+        items,
+        rotations: [],
+        laborLines: defaultLaborLines(),
+        commissionPct: 0,
+        commissionBeneficiaries: 0,
+      },
+      { laborEngineConfig: DEFAULT_LABOR_ENGINE_CONFIG },
+    );
     expect(res.totals.materials.retail).toBeCloseTo(
       3 * DEFAULT_PRICING_ENGINE_CONFIG.plantingWithoutPotFeePerPlant,
       5,

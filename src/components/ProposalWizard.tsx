@@ -92,6 +92,10 @@ import {
 } from "@/server/pricing/auto-labor";
 import { parseSizeInchesFromText } from "@/server/pricing/cpp-model";
 import {
+  DEFAULT_LABOR_ENGINE_CONFIG,
+  type LaborEngineConfig,
+} from "@/server/pricing/labor-engine-schema";
+import {
   DEFAULT_PRICING_ENGINE_CONFIG,
   type PricingEngineConfig,
 } from "@/server/pricing/engine-schema";
@@ -210,6 +214,21 @@ const LABOR_LABELS: Record<ProposalLaborLine["key"], string> = {
   cleanUp: "Clean up",
   driveFromJob: "Drive time from job",
 };
+
+function laborPeopleRuleShortLabel(rule: string): string {
+  switch (rule) {
+    case "plants_17_or_larger":
+      return '17"+ plants present';
+    case "total_14_over_threshold":
+      return "14\" plant count over threshold";
+    case "total_10_over_threshold":
+      return "10\" plant count over threshold";
+    case "total_6_8_over_threshold":
+      return "6\"+8\" plant count over threshold";
+    default:
+      return "Default (1 installer)";
+  }
+}
 
 function newRequirementId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -627,6 +646,14 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const [engineConfig, setEngineConfig] = useState<PricingEngineConfig>(
     DEFAULT_PRICING_ENGINE_CONFIG,
   );
+  const [laborEngineConfig, setLaborEngineConfig] = useState<LaborEngineConfig>(
+    DEFAULT_LABOR_ENGINE_CONFIG,
+  );
+  const [apiDriveLegs, setApiDriveLegs] = useState<{
+    toJobHours: number;
+    fromJobHours: number;
+    mapsApiFallbackUsed: boolean;
+  } | null>(null);
   const [laborLines, setLaborLines] = useState<ProposalLaborLine[]>(() =>
     defaultLaborLines().map((l) => ({ ...l })),
   );
@@ -787,6 +814,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     apiGet<PricingEngineConfig>("/pricing-config")
       .then((cfg) => {
         setEngineConfig(cfg);
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+    apiGet<LaborEngineConfig>("/labor-engine-config")
+      .then((cfg) => {
+        setLaborEngineConfig(cfg);
       })
       .catch(() => {
         /* keep defaults */
@@ -1824,6 +1858,76 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     return null;
   }, [locationId, selectedClient]);
 
+  const selectedLocation = useMemo(
+    () => selectedClient?.locations.find((l) => l.id === locationId),
+    [selectedClient, locationId],
+  );
+
+  /** CRM / data one-way minutes (excludes simulated hash fallback). */
+  const crmDriveOneWayMinutes = useMemo<number | null>(() => {
+    if (typeof selectedLocation?.driveTimeMinutes === "number") {
+      return selectedLocation.driveTimeMinutes;
+    }
+    if (typeof selectedClient?.driveTimeMinutes === "number") {
+      return selectedClient.driveTimeMinutes;
+    }
+    return null;
+  }, [selectedClient, selectedLocation]);
+
+  const vendorAddressTrimmed = useMemo(
+    () => engineConfig.vendorHomeAddress?.trim() ?? "",
+    [engineConfig.vendorHomeAddress],
+  );
+
+  const jobSiteAddressTrimmed = useMemo(
+    () => selectedLocation?.address?.trim() ?? "",
+    [selectedLocation],
+  );
+
+  const mapsDriveEligible = useMemo(
+    () =>
+      crmDriveOneWayMinutes == null &&
+      vendorAddressTrimmed.length > 0 &&
+      jobSiteAddressTrimmed.length > 0,
+    [crmDriveOneWayMinutes, vendorAddressTrimmed, jobSiteAddressTrimmed],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!mapsDriveEligible) {
+      setApiDriveLegs(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void apiJson<{
+      toJobHours: number;
+      fromJobHours: number;
+      fallbackUsed: boolean;
+    }>("/labor-drive", {
+      method: "POST",
+      body: JSON.stringify({
+        originAddress: vendorAddressTrimmed,
+        destinationAddress: jobSiteAddressTrimmed,
+      }),
+    })
+      .then((r) => {
+        if (cancelled) return;
+        setApiDriveLegs({
+          toJobHours: r.toJobHours,
+          fromJobHours: r.fromJobHours,
+          mapsApiFallbackUsed: r.fallbackUsed,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setApiDriveLegs(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mapsDriveEligible, vendorAddressTrimmed, jobSiteAddressTrimmed]);
+
   const autoLaborPreview = useMemo(
     () =>
       computeAutoLaborLines({
@@ -1837,15 +1941,62 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 : parseSizeInchesFromText(it.name ?? ""),
             name: it.name,
           })),
+        potItems: draftItems
+          .filter((it) => it.category === "pot")
+          .map((it) => ({
+            qty: Number(it.qty) || 0,
+            sizeInches:
+              typeof it.sizeInches === "number"
+                ? it.sizeInches
+                : parseSizeInchesFromText(it.name ?? ""),
+            name: it.name,
+          })),
+        stagingItems: draftItems
+          .filter((it) => it.category === "staging")
+          .map((it) => ({
+            catalogId: it.catalogId,
+            qty: Number(it.qty) || 0,
+          })),
         driveMinutesOneWay: driveMinutesResolved,
+        driveLegs:
+          mapsDriveEligible && apiDriveLegs ? apiDriveLegs : null,
         config: engineConfig,
+        laborConfig: laborEngineConfig,
       }),
-    [draftItems, driveMinutesResolved, engineConfig],
+    [
+      draftItems,
+      driveMinutesResolved,
+      engineConfig,
+      laborEngineConfig,
+      mapsDriveEligible,
+      apiDriveLegs,
+    ],
+  );
+
+  const requirementPlantLinesForLabor = useMemo(
+    () =>
+      requirementLines
+        .filter((l) => l.plantCatalogId.trim())
+        .map((l) => {
+          const plant = catalog.find((p) => p.id === l.plantCatalogId.trim());
+          const sizeInches =
+            plant && typeof plant.sizeInches === "number"
+              ? plant.sizeInches
+              : plant
+                ? parseSizeInchesFromText(plant.name ?? "")
+                : null;
+          return {
+            qty: Math.max(0, Number(l.qty) || 0),
+            sizeInches,
+            name: plant?.name ?? undefined,
+          };
+        })
+        .filter((row) => row.qty > 0),
+    [requirementLines, catalog],
   );
 
   /**
-   * Fallback estimation for the Requirements step: use the simplified
-   * count-based table when we don't have Products yet.
+   * Fallback estimation for the Requirements step when Products are not filled yet.
    */
   const simplifiedLaborPreview = useMemo(() => {
     const totalQty = requirementLines.reduce(
@@ -1853,12 +2004,28 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       0,
     );
     if (totalQty <= 0) return null;
+    const plantLines =
+      requirementPlantLinesForLabor.length > 0
+        ? requirementPlantLinesForLabor
+        : undefined;
     return computeSimplifiedLabor({
-      plantCount: totalQty,
+      plantCount: plantLines?.length ? 0 : totalQty,
+      plantLines,
       driveMinutesOneWay: driveMinutesResolved,
+      driveLegs:
+        mapsDriveEligible && apiDriveLegs ? apiDriveLegs : null,
       config: engineConfig,
+      laborConfig: laborEngineConfig,
     });
-  }, [requirementLines, driveMinutesResolved, engineConfig]);
+  }, [
+    requirementLines,
+    requirementPlantLinesForLabor,
+    driveMinutesResolved,
+    engineConfig,
+    laborEngineConfig,
+    mapsDriveEligible,
+    apiDriveLegs,
+  ]);
 
   const hasPlantProductsForLabor = useMemo(
     () =>
@@ -1886,6 +2053,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         driveMinutesOneWay: autoLaborPreview.driveMinutesOneWay,
         bands: autoLaborPreview.bands,
         fallbackDiameterCount: autoLaborPreview.fallbackDiameterCount,
+        pwuLoadUnload: autoLaborPreview.pwuLoadUnload,
+        pwuInstall: autoLaborPreview.pwuInstall,
+        peopleAssignmentRuleMatched:
+          autoLaborPreview.peopleAssignmentRuleMatched,
+        mapsApiFallbackUsed: autoLaborPreview.mapsApiFallbackUsed,
       };
     }
     if (simplifiedLaborPreview) {
@@ -1900,6 +2072,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         driveMinutesOneWay: s.driveMinutesOneWay,
         bands: [],
         fallbackDiameterCount: s.fallbackDiameterCount,
+        pwuLoadUnload: s.pwuLoadUnload,
+        pwuInstall: s.pwuInstall,
+        peopleAssignmentRuleMatched: s.peopleAssignmentRuleMatched,
+        mapsApiFallbackUsed: s.mapsApiFallbackUsed,
       };
     }
     return {
@@ -1911,6 +2087,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       driveMinutesOneWay: autoLaborPreview.driveMinutesOneWay,
       bands: autoLaborPreview.bands,
       fallbackDiameterCount: autoLaborPreview.fallbackDiameterCount,
+      pwuLoadUnload: autoLaborPreview.pwuLoadUnload,
+      pwuInstall: autoLaborPreview.pwuInstall,
+      peopleAssignmentRuleMatched: autoLaborPreview.peopleAssignmentRuleMatched,
+      mapsApiFallbackUsed: autoLaborPreview.mapsApiFallbackUsed,
     };
   }, [
     hasPlantProductsForLabor,
@@ -2927,26 +3107,25 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     </p>
                   </div>
                   <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
-                    Auto-calculated. Configure rules in Open pricing
-                    configuration.
+                    PWU labor engine. Crew rules and install minutes are edited
+                    under Admin → Delivery &amp; install labor.
                   </span>
                 </div>
                 <div className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
                   <div>
-                    Auto crew:{" "}
+                    Crew:{" "}
                     <strong>{displayLaborPreview.peakPeople} person(s)</strong>
-                    {" × "}
+                    {" · Handling (load+unload+install+clean) "}
                     <strong>
                       {displayLaborPreview.clockMinutesPerPerson.toFixed(0)} min
                     </strong>
-                    {" each (target <= "}
-                    {displayLaborPreview.targetClockMinutesPerPerson}
-                    {" min/person)"}
-                    {" · Total install "}
+                    {" total wall time (sequential sum)"}
+                    {" · Install workload "}
                     <strong>
                       {displayLaborPreview.totalInstallMinutes.toFixed(0)} min
                     </strong>
-                    {" · Drive "}
+                    {" (1-person minutes)"}
+                    {" · Avg drive "}
                     <strong>
                       {displayLaborPreview.driveMinutesOneWay.toFixed(0)} min
                     </strong>
@@ -2958,44 +3137,49 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       </>
                     ) : null}
                   </div>
+                  <div className="mt-2 border-t border-emerald-200/80 pt-2 text-[11px] text-emerald-800 dark:border-emerald-800 dark:text-emerald-200">
+                    PWU load/unload{" "}
+                    <strong>{displayLaborPreview.pwuLoadUnload.toFixed(1)}</strong>
+                    {" · PWU install "}
+                    <strong>{displayLaborPreview.pwuInstall.toFixed(1)}</strong>
+                    {" · Staffing: "}
+                    <strong>
+                      {laborPeopleRuleShortLabel(
+                        displayLaborPreview.peopleAssignmentRuleMatched,
+                      )}
+                    </strong>
+                  </div>
                   {displayLaborPreview.source === "requirements" ? (
                     <p className="mt-2 border-t border-emerald-200/80 pt-2 text-[11px] text-emerald-800 dark:border-emerald-800 dark:text-emerald-200">
-                      Requirements preview uses conservative CPP fallback (
-                      {engineConfig.laborAuto.missingDiameterFallbackCpp}) for
-                      all plants until product lines provide item diameters.
+                      Requirements preview uses catalog pot sizes when a plant
+                      is selected; otherwise the configured fallback pot size (
+                      {laborEngineConfig.simplifiedFallbackPlantSize}) for labor
+                      PWU until product lines are filled.
                     </p>
                   ) : null}
                 </div>
+                {displayLaborPreview.mapsApiFallbackUsed ? (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                    Drive times used the configured Maps fallback (both legs)
+                    because Google Directions was unavailable or returned no
+                    route.
+                  </div>
+                ) : null}
                 {displayLaborPreview.fallbackDiameterCount > 0 ? (
                   <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
                     {displayLaborPreview.fallbackDiameterCount} plant unit(s)
-                    are using fallback CPP=
-                    {engineConfig.laborAuto.missingDiameterFallbackCpp} because
-                    diameter was not available.
+                    use fallback pot size{" "}
+                    <strong>{laborEngineConfig.simplifiedFallbackPlantSize}</strong>{" "}
+                    because diameter was not available.
                   </div>
                 ) : null}
-                {displayLaborPreview.bands.length > 0 ? (
-                  <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                    {displayLaborPreview.bands.map((b) => (
-                      <span
-                        key={b.bandId}
-                        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-gray-900 dark:text-emerald-200"
-                      >
-                        {b.bandLabel}
-                        <span className="font-normal text-emerald-700 dark:text-emerald-300">
-                          · {b.plantCount}u · {b.totalInstallMinutes.toFixed(0)}{" "}
-                          min
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-                ) : displayLaborPreview.source === "requirements" &&
-                  simplifiedLaborPreview ? (
+                {displayLaborPreview.source === "requirements" &&
+                simplifiedLaborPreview ? (
                   <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
                     <strong>
                       {simplifiedLaborPreview.totalInstallHours.toFixed(2)} h
                     </strong>
-                    {" total install workload (CPP fallback estimate)."}
+                    {" total install wall time (requirements estimate)."}
                   </div>
                 ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">

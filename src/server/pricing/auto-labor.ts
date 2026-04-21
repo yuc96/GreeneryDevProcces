@@ -1,28 +1,52 @@
 import type { ProposalLaborLineEntity } from "../domain";
-import { PROPOSAL_LABOR_KEYS } from "../domain";
-import type {
-  LaborAutoConfig,
-  LineDistributionPct,
-  PricingEngineConfig,
-} from "./engine-schema";
+import type { LaborEngineConfig } from "./labor-engine-schema";
+import type { PricingEngineConfig } from "./engine-schema";
+import { parseSizeInchesFromText } from "./cpp-model";
+import { inchesToLaborPlantSize } from "./labor-engine/sizes";
 import {
-  peopleNeededForQtyAndDiameter,
-  parseSizeInchesFromText,
-  resolveCppForDiameter,
-} from "./cpp-model";
+  laborMaterialTypeFromStagingSourceId,
+  stagingSourceIdFromCatalogId,
+} from "./labor-engine/staging-material-map";
+import type { MaterialBulkRow, PlantQtyRow } from "./labor-engine/pwu";
+import {
+  estimateLaborLinesCore,
+  type LaborDriveLegsInput,
+} from "./labor-engine/estimate-sync";
+import { enforceMinHours } from "./labor-engine/hours";
+import type { PeopleRuleId } from "./labor-engine/people";
 
 export interface AutoLaborPlantInput {
   qty: number;
   sizeInches?: number | null;
-  /** Optional name (e.g. 'Ficus Lyrata 14"'); used only if sizeInches not set. */
   name?: string | null;
+}
+
+export interface AutoLaborPotInput {
+  qty: number;
+  sizeInches?: number | null;
+  name?: string | null;
+}
+
+export interface AutoLaborStagingInput {
+  catalogId: string;
+  qty: number;
+}
+
+export interface AutoLaborDriveLegsInput {
+  toJobHours: number;
+  fromJobHours: number;
+  mapsApiFallbackUsed: boolean;
 }
 
 export interface AutoLaborInput {
   plantItems: AutoLaborPlantInput[];
-  /** Drive time one-way in minutes. Null/undefined => use fallback from config. */
+  potItems?: AutoLaborPotInput[];
+  stagingItems?: AutoLaborStagingInput[];
   driveMinutesOneWay: number | null | undefined;
+  /** When set (e.g. from `/api/labor-drive`), overrides symmetric minutes. */
+  driveLegs?: AutoLaborDriveLegsInput | null;
   config: PricingEngineConfig;
+  laborConfig: LaborEngineConfig;
 }
 
 export interface AutoLaborBandBreakdown {
@@ -34,25 +58,24 @@ export interface AutoLaborBandBreakdown {
 
 export interface AutoLaborResult {
   lines: ProposalLaborLineEntity[];
-  /** Person-minutes derived from CPP staffing rule. */
+  /** One-person install minutes (sum qty × minutes per size). */
   totalInstallMinutes: number;
-  /** People needed in parallel (CPP-driven). */
   peakPeople: number;
-  /**
-   * Average clock minutes per person for handling (load/unload/install/cleanUp):
-   * total handling person-minutes ÷ crew size.
-   */
+  /** Wall-clock minutes per person for load+unload+install+cleanUp (sequential sum). */
   clockMinutesPerPerson: number;
-  /** Configured target (e.g. 120 = 2 hours/person). */
+  /** Legacy field from pricing config (CPP era); shown only for admin compatibility. */
   targetClockMinutesPerPerson: number;
+  /** Average one-way drive minutes (mean of to-job and from-job). */
   driveMinutesOneWay: number;
   totalLaborCost: number;
   bands: AutoLaborBandBreakdown[];
+  /** Plant units that relied on fallback pot size (no diameter). */
   fallbackDiameterCount: number;
+  pwuLoadUnload: number;
+  pwuInstall: number;
+  peopleAssignmentRuleMatched: PeopleRuleId;
+  mapsApiFallbackUsed: boolean;
 }
-
-const HANDLING_LINE_KEYS = ["load", "unload", "install", "cleanUp"] as const;
-type HandlingLineKey = (typeof HANDLING_LINE_KEYS)[number];
 
 function resolveInches(plant: AutoLaborPlantInput): number | null {
   if (
@@ -65,297 +88,250 @@ function resolveInches(plant: AutoLaborPlantInput): number | null {
   return null;
 }
 
-/** Resolve drive minutes (handles fallback) and corresponding hours. */
-function resolveDrive(
+function resolvePotInches(pot: AutoLaborPotInput): number | null {
+  if (
+    typeof pot.sizeInches === "number" &&
+    Number.isFinite(pot.sizeInches)
+  ) {
+    return pot.sizeInches;
+  }
+  if (pot.name) return parseSizeInchesFromText(pot.name);
+  return null;
+}
+
+function buildPlantRows(
+  items: AutoLaborPlantInput[],
+  laborCfg: LaborEngineConfig,
+): { rows: PlantQtyRow[]; fallbackDiameterCount: number } {
+  const rows: PlantQtyRow[] = [];
+  let fallbackDiameterCount = 0;
+  for (const it of items) {
+    const qty = Math.max(0, Number(it.qty) || 0);
+    if (qty <= 0) continue;
+    const inches = resolveInches(it);
+    const { size, usedFallback } = inchesToLaborPlantSize(
+      inches,
+      laborCfg.simplifiedFallbackPlantSize,
+    );
+    if (usedFallback) {
+      fallbackDiameterCount += qty;
+    }
+    rows.push({ size, quantity: qty });
+  }
+  return { rows, fallbackDiameterCount };
+}
+
+function buildPotRows(
+  items: AutoLaborPotInput[] | undefined,
+  laborCfg: LaborEngineConfig,
+): PlantQtyRow[] {
+  if (!items?.length) return [];
+  const rows: PlantQtyRow[] = [];
+  for (const it of items) {
+    const qty = Math.max(0, Number(it.qty) || 0);
+    if (qty <= 0) continue;
+    const inches = resolvePotInches(it);
+    const { size } = inchesToLaborPlantSize(
+      inches,
+      laborCfg.simplifiedFallbackPlantSize,
+    );
+    rows.push({ size, quantity: qty });
+  }
+  return rows;
+}
+
+function aggregateMaterials(
+  items: AutoLaborStagingInput[] | undefined,
+): MaterialBulkRow[] {
+  if (!items?.length) return [];
+  const map = new Map<string, number>();
+  for (const it of items) {
+    const qty = Math.max(0, Number(it.qty) || 0);
+    if (qty <= 0) continue;
+    const sid = stagingSourceIdFromCatalogId(it.catalogId);
+    if (sid == null) continue;
+    const t = laborMaterialTypeFromStagingSourceId(sid);
+    map.set(t, (map.get(t) ?? 0) + qty);
+  }
+  return [...map.entries()].map(([type, estimatedBulks]) => ({
+    type: type as MaterialBulkRow["type"],
+    estimatedBulks,
+  })) as MaterialBulkRow[];
+}
+
+function resolveDriveInput(
+  driveLegs: AutoLaborDriveLegsInput | null | undefined,
   driveMinutesOneWay: number | null | undefined,
-  auto: LaborAutoConfig,
-): { driveMinutesUsed: number; driveHours: number } {
-  const resolvedDrive =
+  laborCfg: LaborEngineConfig,
+  pricingCfg: PricingEngineConfig,
+): LaborDriveLegsInput {
+  if (
+    driveLegs &&
+    Number.isFinite(driveLegs.toJobHours) &&
+    Number.isFinite(driveLegs.fromJobHours)
+  ) {
+    return {
+      toJobHours: enforceMinHours(driveLegs.toJobHours, laborCfg.MIN_HOURS),
+      fromJobHours: enforceMinHours(driveLegs.fromJobHours, laborCfg.MIN_HOURS),
+      mapsApiFallbackUsed: Boolean(driveLegs.mapsApiFallbackUsed),
+    };
+  }
+  const resolvedMin =
     typeof driveMinutesOneWay === "number" &&
     Number.isFinite(driveMinutesOneWay) &&
     driveMinutesOneWay >= 0
       ? driveMinutesOneWay
       : null;
-  const driveHours =
-    resolvedDrive != null
-      ? resolvedDrive / 60
-      : auto.defaultDriveHoursOneWayFallback;
-  const driveMinutesUsed =
-    resolvedDrive != null ? resolvedDrive : driveHours * 60;
-  return { driveMinutesUsed, driveHours };
-}
-
-function deriveCrewSize(
-  totalManMinutes: number,
-  targetClockMinutesPerPerson: number,
-): { peopleNeeded: number; clockMinutesPerPerson: number } {
-  const target = Math.max(1, targetClockMinutesPerPerson);
-  if (totalManMinutes <= 0) {
-    return { peopleNeeded: 1, clockMinutesPerPerson: 0 };
-  }
-  const peopleNeeded = Math.max(1, Math.ceil(totalManMinutes / target));
-  const clockMinutesPerPerson = totalManMinutes / peopleNeeded;
-  return { peopleNeeded, clockMinutesPerPerson };
-}
-
-function normalizedHandlingWeights(
-  pct: LineDistributionPct,
-): Record<HandlingLineKey, number> {
-  const raw = {
-    load: Math.max(0, pct.load),
-    unload: Math.max(0, pct.unload),
-    install: Math.max(0, pct.install),
-    cleanUp: Math.max(0, pct.cleanUp),
-  };
-  const sum = raw.load + raw.unload + raw.install + raw.cleanUp;
-  if (!(sum > 0)) {
-    return {
-      load: 0.25,
-      unload: 0.25,
-      install: 0.4,
-      cleanUp: 0.1,
-    };
-  }
+  const hoursOneWay =
+    resolvedMin != null
+      ? enforceMinHours(resolvedMin / 60, laborCfg.MIN_HOURS)
+      : enforceMinHours(
+          laborCfg.defaultDriveHoursOneWayFallback > 0
+            ? laborCfg.defaultDriveHoursOneWayFallback
+            : pricingCfg.laborAuto.defaultDriveHoursOneWayFallback,
+          laborCfg.MIN_HOURS,
+        );
   return {
-    load: raw.load / sum,
-    unload: raw.unload / sum,
-    install: raw.install / sum,
-    cleanUp: raw.cleanUp / sum,
+    toJobHours: hoursOneWay,
+    fromJobHours: hoursOneWay,
+    mapsApiFallbackUsed: false,
   };
 }
 
-function handlingManMinutesByKey(
-  totalInstallManMinutes: number,
-  auto: LaborAutoConfig,
-): Record<HandlingLineKey, number> {
-  const w = normalizedHandlingWeights(auto.lineDistributionPct);
-  return {
-    load: totalInstallManMinutes * w.load,
-    unload: totalInstallManMinutes * w.unload,
-    install: totalInstallManMinutes * w.install,
-    cleanUp: totalInstallManMinutes * w.cleanUp,
-  };
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export function computeAutoLaborLines(input: AutoLaborInput): AutoLaborResult {
-  const { plantItems, driveMinutesOneWay, config } = input;
-  const auto: LaborAutoConfig = config.laborAuto;
-  const target = Math.max(1, auto.targetClockMinutesPerPerson);
-
-  let totalInstallMinutes = 0;
-  let fallbackDiameterCount = 0;
-  const breakdownMap = new Map<string, AutoLaborBandBreakdown>();
-
-  for (const it of plantItems) {
-    const qty = Math.max(0, Number(it.qty) || 0);
-    if (qty <= 0) continue;
-    const inches = resolveInches(it);
-    const cppRes = resolveCppForDiameter(inches, {
-      cppByDiameterPoints: auto.cppByDiameterPoints,
-      cppInterpolationMode: auto.cppInterpolationMode,
-      missingDiameterFallbackCpp: auto.missingDiameterFallbackCpp,
-      missingDiameterFallbackMinEmployees:
-        auto.missingDiameterFallbackMinEmployees,
-      missingDiameterTwoPeopleThresholdQty:
-        auto.missingDiameterTwoPeopleThresholdQty,
-    });
-    if (cppRes.usedFallbackDiameter) {
-      fallbackDiameterCount += qty;
-    }
-    const peopleForLine = peopleNeededForQtyAndDiameter(qty, inches, {
-      cppByDiameterPoints: auto.cppByDiameterPoints,
-      cppInterpolationMode: auto.cppInterpolationMode,
-      missingDiameterFallbackCpp: auto.missingDiameterFallbackCpp,
-      missingDiameterFallbackMinEmployees:
-        auto.missingDiameterFallbackMinEmployees,
-      missingDiameterTwoPeopleThresholdQty:
-        auto.missingDiameterTwoPeopleThresholdQty,
-    });
-    const lineMinutes = peopleForLine * target;
-    totalInstallMinutes += lineMinutes;
-
-    const prev = breakdownMap.get(cppRes.bandId);
-    if (prev) {
-      prev.plantCount += qty;
-      prev.totalInstallMinutes += lineMinutes;
-    } else {
-      breakdownMap.set(cppRes.bandId, {
-        bandId: cppRes.bandId,
-        bandLabel: cppRes.bandLabel,
-        plantCount: qty,
-        totalInstallMinutes: lineMinutes,
-      });
-    }
-  }
-
-  const hasPlantWork = totalInstallMinutes > 0;
-  const handlingByKey = hasPlantWork
-    ? handlingManMinutesByKey(totalInstallMinutes, auto)
-    : ({
-        load: 0,
-        unload: 0,
-        install: 0,
-        cleanUp: 0,
-      } as Record<HandlingLineKey, number>);
-  const totalHandlingManMinutes = hasPlantWork
-    ? HANDLING_LINE_KEYS.reduce((s, k) => s + handlingByKey[k], 0)
-    : 0;
-
-  const { peopleNeeded, clockMinutesPerPerson } = deriveCrewSize(
-    totalHandlingManMinutes,
-    target,
-  );
-  const driverPeople = 1;
-  const { driveMinutesUsed, driveHours } = resolveDrive(
+  const {
+    plantItems,
+    potItems,
+    stagingItems,
     driveMinutesOneWay,
-    auto,
+    driveLegs,
+    config,
+    laborConfig,
+  } = input;
+
+  const { rows: plants, fallbackDiameterCount } = buildPlantRows(
+    plantItems,
+    laborConfig,
+  );
+  const pots = buildPotRows(potItems, laborConfig);
+  const materials = aggregateMaterials(stagingItems);
+
+  const drive = resolveDriveInput(
+    driveLegs ?? null,
+    driveMinutesOneWay,
+    laborConfig,
+    config,
   );
 
-  const handlingHoursByKey: Record<HandlingLineKey, number> = {
-    load: 0,
-    unload: 0,
-    install: 0,
-    cleanUp: 0,
-  };
-  if (hasPlantWork && peopleNeeded > 0) {
-    for (const key of HANDLING_LINE_KEYS) {
-      handlingHoursByKey[key] = handlingByKey[key] / peopleNeeded / 60;
-    }
-  }
+  const core = estimateLaborLinesCore(
+    { plants, pots, materials, drive },
+    laborConfig,
+  );
 
-  const lines: ProposalLaborLineEntity[] = PROPOSAL_LABOR_KEYS.map((key) => {
-    if (key === "driveToJob" || key === "driveFromJob") {
-      return { key, people: driverPeople, hours: round2(driveHours) };
-    }
-    return {
-      key,
-      people: peopleNeeded,
-      hours: round2(handlingHoursByKey[key] ?? 0),
-    };
-  });
+  const wallSequential = core.lines
+    .filter((l) => ["load", "unload", "install", "cleanUp"].includes(l.key))
+    .reduce((s, l) => s + (l.people > 0 ? l.hours : 0), 0);
+  const clockMin = wallSequential * 60;
 
-  const totalLaborCost = lines.reduce(
+  const totalLaborCost = core.lines.reduce(
     (s, l) => s + l.people * l.hours * config.hourlyRate,
     0,
   );
 
-  const bandsOut: AutoLaborBandBreakdown[] = Array.from(
-    breakdownMap.values(),
-  )
-    .map((b) => ({
-      ...b,
-      totalInstallMinutes: round2(b.totalInstallMinutes),
-    }))
-    .sort((a, b) => a.bandLabel.localeCompare(b.bandLabel));
+  const driveAvgMin =
+    ((drive.toJobHours + drive.fromJobHours) / 2) * 60;
 
   return {
-    lines,
-    totalInstallMinutes: round2(totalInstallMinutes),
-    peakPeople: peopleNeeded,
-    clockMinutesPerPerson: round2(clockMinutesPerPerson),
-    targetClockMinutesPerPerson: target,
-    driveMinutesOneWay: round2(driveMinutesUsed),
+    lines: core.lines,
+    totalInstallMinutes: round2(core.totalInstallMinutesOnePerson),
+    peakPeople: core.teamSize,
+    clockMinutesPerPerson: round2(clockMin),
+    targetClockMinutesPerPerson: config.laborAuto.targetClockMinutesPerPerson,
+    driveMinutesOneWay: round2(driveAvgMin),
     totalLaborCost: round2(totalLaborCost),
-    bands: bandsOut,
+    bands: [],
     fallbackDiameterCount,
+    pwuLoadUnload: round2(core.pwuLoadUnload),
+    pwuInstall: round2(core.pwuInstall),
+    peopleAssignmentRuleMatched: core.peopleAssignmentRuleMatched,
+    mapsApiFallbackUsed: core.mapsApiFallbackUsed,
   };
 }
 
+export interface SimplifiedLaborPlantLineInput {
+  qty: number;
+  sizeInches?: number | null;
+  name?: string | null;
+}
+
 export interface SimplifiedLaborInput {
+  /** Used when `plantLines` is absent: all units at fallback pot size. */
   plantCount: number;
+  plantLines?: SimplifiedLaborPlantLineInput[];
   driveMinutesOneWay: number | null | undefined;
+  driveLegs?: AutoLaborDriveLegsInput | null;
   config: PricingEngineConfig;
+  laborConfig: LaborEngineConfig;
 }
 
 export interface SimplifiedLaborResult {
   lines: ProposalLaborLineEntity[];
-  /** Total install workload used by CPP fallback in hours. */
   totalInstallHours: number;
-  /** People derived from the CPP fallback rule. */
   peakPeople: number;
-  /** Average clock minutes per person across handling lines. */
   clockMinutesPerPerson: number;
   driveMinutesOneWay: number;
   totalLaborCost: number;
   fallbackDiameterCount: number;
+  pwuLoadUnload: number;
+  pwuInstall: number;
+  peopleAssignmentRuleMatched: PeopleRuleId;
+  mapsApiFallbackUsed: boolean;
 }
 
-/**
- * Requirements-step estimation: without reliable per-item diameter at this
- * point, apply the conservative fallback CPP for all plants.
- */
 export function computeSimplifiedLabor(
   input: SimplifiedLaborInput,
 ): SimplifiedLaborResult {
-  const { plantCount, driveMinutesOneWay, config } = input;
-  const auto = config.laborAuto;
-  const count = Math.max(0, Math.floor(plantCount));
-  const target = Math.max(1, auto.targetClockMinutesPerPerson);
-  const peopleNeeded = peopleNeededForQtyAndDiameter(count, null, {
-    cppByDiameterPoints: auto.cppByDiameterPoints,
-    cppInterpolationMode: auto.cppInterpolationMode,
-    missingDiameterFallbackCpp: auto.missingDiameterFallbackCpp,
-    missingDiameterFallbackMinEmployees: auto.missingDiameterFallbackMinEmployees,
-    missingDiameterTwoPeopleThresholdQty:
-      auto.missingDiameterTwoPeopleThresholdQty,
+  const plantItems: AutoLaborPlantInput[] =
+    input.plantLines && input.plantLines.length > 0
+      ? input.plantLines.map((r) => ({
+          qty: Math.max(0, Number(r.qty) || 0),
+          sizeInches: r.sizeInches,
+          name: r.name,
+        }))
+      : [
+          {
+            qty: Math.max(0, Math.floor(input.plantCount)),
+            sizeInches: null,
+            name: null,
+          },
+        ];
+
+  const full = computeAutoLaborLines({
+    plantItems,
+    potItems: [],
+    stagingItems: [],
+    driveMinutesOneWay: input.driveMinutesOneWay,
+    driveLegs: input.driveLegs,
+    config: input.config,
+    laborConfig: input.laborConfig,
   });
-  const totalInstallMinutes = count > 0 ? peopleNeeded * target : 0;
-  const totalInstallHours = totalInstallMinutes / 60;
-  const handlingByKey = totalInstallMinutes
-    ? handlingManMinutesByKey(totalInstallMinutes, auto)
-    : ({
-        load: 0,
-        unload: 0,
-        install: 0,
-        cleanUp: 0,
-      } as Record<HandlingLineKey, number>);
-  const totalHandlingManMinutes = totalInstallMinutes
-    ? HANDLING_LINE_KEYS.reduce((s, k) => s + handlingByKey[k], 0)
-    : 0;
-  const clockMinutesPerPerson =
-    peopleNeeded > 0 ? totalHandlingManMinutes / peopleNeeded : 0;
-
-  const driverPeople = 1;
-  const { driveMinutesUsed, driveHours } = resolveDrive(
-    driveMinutesOneWay,
-    auto,
-  );
-
-  const handlingHoursByKey: Record<HandlingLineKey, number> = {
-    load: 0,
-    unload: 0,
-    install: 0,
-    cleanUp: 0,
-  };
-  if (totalInstallMinutes && peopleNeeded > 0) {
-    for (const key of HANDLING_LINE_KEYS) {
-      handlingHoursByKey[key] = handlingByKey[key] / peopleNeeded / 60;
-    }
-  }
-
-  const lines: ProposalLaborLineEntity[] = PROPOSAL_LABOR_KEYS.map((key) => {
-    if (key === "driveToJob" || key === "driveFromJob") {
-      return { key, people: driverPeople, hours: round2(driveHours) };
-    }
-    return {
-      key,
-      people: peopleNeeded,
-      hours: round2(handlingHoursByKey[key] ?? 0),
-    };
-  });
-  const totalLaborCost = lines.reduce(
-    (s, l) => s + l.people * l.hours * config.hourlyRate,
-    0,
-  );
 
   return {
-    lines,
-    totalInstallHours: round2(totalInstallHours),
-    peakPeople: peopleNeeded,
-    clockMinutesPerPerson: round2(clockMinutesPerPerson),
-    driveMinutesOneWay: round2(driveMinutesUsed),
-    totalLaborCost: round2(totalLaborCost),
-    fallbackDiameterCount: count,
+    lines: full.lines,
+    totalInstallHours: round2(full.totalInstallMinutes / 60),
+    peakPeople: full.peakPeople,
+    clockMinutesPerPerson: full.clockMinutesPerPerson,
+    driveMinutesOneWay: full.driveMinutesOneWay,
+    totalLaborCost: full.totalLaborCost,
+    fallbackDiameterCount: full.fallbackDiameterCount,
+    pwuLoadUnload: full.pwuLoadUnload,
+    pwuInstall: full.pwuInstall,
+    peopleAssignmentRuleMatched: full.peopleAssignmentRuleMatched,
+    mapsApiFallbackUsed: full.mapsApiFallbackUsed,
   };
 }
 
@@ -373,8 +349,4 @@ export function simulateDriveMinutes(clientId: string, max: number): number {
   }
   const positive = (h >>> 0) % (m + 1);
   return positive;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
