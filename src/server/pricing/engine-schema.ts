@@ -104,6 +104,19 @@ export const simplifiedCountRowSchema = z.object({
 
 export type SimplifiedCountRow = z.infer<typeof simplifiedCountRowSchema>;
 
+export const cppByDiameterPointSchema = z.object({
+  diameterInches: z.number().min(0),
+  cpp: z.number().positive(),
+  minEmployees: z.number().int().min(1).default(1),
+  /** Optional explicit threshold where staffing switches from 1 to 2 people. */
+  twoPeopleThresholdQty: z.number().positive().optional(),
+});
+
+export type CppByDiameterPoint = z.infer<typeof cppByDiameterPointSchema>;
+
+export const cppInterpolationModeSchema = z.enum(["linear"]);
+export type CppInterpolationMode = z.infer<typeof cppInterpolationModeSchema>;
+
 export const laborAutoConfigSchema = z.object({
   enabledByDefault: z.boolean(),
   /**
@@ -116,9 +129,9 @@ export const laborAutoConfigSchema = z.object({
   /** Number of people during driveToJob / driveFromJob lines (driver count). */
   driverPeople: z.number().int().min(1),
   defaultDriveHoursOneWayFallback: z.number().min(0),
-  /** Detailed per-inch complexity bands. */
+  /** Used by staging recipe selection (not by CPP staffing math). */
   complexityBands: z.array(complexityBandSchema).min(1),
-  /** Per-line adjustments (access, stairs, distance, fragile). */
+  /** LEGACY for staffing math; retained for backward compatibility. */
   adjustments: laborAdjustmentsSchema,
   /**
    * Relative weights (0–1 each) for splitting **plant-derived** install
@@ -128,8 +141,21 @@ export const laborAutoConfigSchema = z.object({
   lineDistributionPct: lineDistributionPctSchema,
   /** Floor person-minutes per phase when the job includes plants. */
   handlingMinimumPersonMinutes: handlingMinimumPersonMinutesSchema,
-  /** Simplified fallback table (plant-count based). */
-  simplifiedByCount: z.array(simplifiedCountRowSchema).min(1),
+  /** LEGACY fallback table (kept only for backward compatibility). */
+  simplifiedByCount: z.array(simplifiedCountRowSchema).min(1).optional(),
+  /**
+   * Core staffing model: how many plants one person can handle for each
+   * reference diameter.
+   */
+  cppByDiameterPoints: z.array(cppByDiameterPointSchema).min(2),
+  /** For intermediate diameters not listed in points. */
+  cppInterpolationMode: cppInterpolationModeSchema,
+  /** Fallback CPP when diameter cannot be resolved from item data. */
+  missingDiameterFallbackCpp: z.number().positive(),
+  /** Minimum employees when diameter cannot be resolved from item data. */
+  missingDiameterFallbackMinEmployees: z.number().int().min(1),
+  /** Optional explicit fallback threshold for switching from 1 to 2 people. */
+  missingDiameterTwoPeopleThresholdQty: z.number().positive().optional(),
   // ---- LEGACY (kept for backward compatibility, no longer used) ----
   crewThresholdInstallMinutes: z.number().min(0).optional(),
   defaultLoadHours: z.number().min(0).optional(),
@@ -190,11 +216,25 @@ export const subIrrigationRowSchema = z.object({
   price: z.number(),
 });
 
+export const truckFeeRangeSchema = z.object({
+  from: z.number().int().min(1),
+  to: z.number().int().min(1).nullable(),
+  fee: z.number().positive(),
+});
+
+export type TruckFeeRange = z.infer<typeof truckFeeRangeSchema>;
+
 export const pricingEngineConfigSchema = z.object({
   schemaVersion: z.literal(1),
   plantFreightPct: z.number().min(0).max(1),
   potFreightPct: z.number().min(0).max(1),
   materialFreightPct: z.number().min(0).max(1),
+  /** Additional charge per plant when planting is done without pot sourcing. */
+  plantingWithoutPotFeePerPlant: z.number().min(0),
+  /** Annual add-on percentage used for guaranteed plants. */
+  guaranteeAnnualAddOnPct: z.number().min(0),
+  /** Internal reserve percentage applied over guaranteed monthly total. */
+  replacementReservePct: z.number().min(0),
   markupMin: z.number(),
   markupMax: z.number(),
   markupStep: z.number(),
@@ -214,8 +254,14 @@ export const pricingEngineConfigSchema = z.object({
   installMinutesDefault: z.number(),
   overheadBrackets: z.array(overheadBracketSchema).length(4),
   rotationPlantsPerHour: z.number(),
-  rotationTruckFeeOptions: z.tuple([z.literal(25), z.literal(50)]),
-  defaultRotationTruckFee: z.union([z.literal(25), z.literal(50)]),
+  /**
+   * Configurable nested ranges for logistics/truck fee by total plant count.
+   * Must be contiguous and non-overlapping; first starts at 1 and last ends at infinity (to=null).
+   */
+  rotationTruckFeeRanges: z.array(truckFeeRangeSchema).min(1),
+  // Legacy fields kept to avoid breaking old persisted config files.
+  rotationTruckFeeOptions: z.array(z.number().positive()).min(1).optional(),
+  defaultRotationTruckFee: z.number().positive().optional(),
   rotationFrequencyWeeksOptions: z.tuple([
     z.literal(4),
     z.literal(6),
@@ -241,6 +287,56 @@ export const pricingEngineConfigSchema = z.object({
   defaultPlantEnvironment: plantEnvironmentSchema,
   /** Staging recipes (1 row per band × environment combination). */
   stagingRecipes: z.array(stagingRecipeSchema),
+}).superRefine((cfg, ctx) => {
+  const ranges = cfg.rotationTruckFeeRanges;
+  if (!ranges.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rotationTruckFeeRanges"],
+      message: "At least one truck fee range is required",
+    });
+    return;
+  }
+  const sorted = [...ranges].sort((a, b) => a.from - b.from);
+  if (sorted[0]!.from !== 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rotationTruckFeeRanges", 0, "from"],
+      message: "First range must start at 1",
+    });
+  }
+  for (let i = 0; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    if (cur.to != null && cur.to < cur.from) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["rotationTruckFeeRanges", i, "to"],
+        message: "Range 'to' must be >= 'from'",
+      });
+    }
+    if (i < sorted.length - 1) {
+      const next = sorted[i + 1]!;
+      if (cur.to == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["rotationTruckFeeRanges", i, "to"],
+          message: "Only last range can be infinite",
+        });
+      } else if (next.from !== cur.to + 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["rotationTruckFeeRanges", i + 1, "from"],
+          message: "Ranges must be contiguous without gaps/overlap",
+        });
+      }
+    } else if (cur.to !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["rotationTruckFeeRanges", i, "to"],
+        message: "Last range must be infinite (to=null)",
+      });
+    }
+  }
 });
 
 export type PricingEngineConfig = z.infer<typeof pricingEngineConfigSchema>;
@@ -248,9 +344,12 @@ export type RotationCatalogEntry = z.infer<typeof rotationCatalogEntrySchema>;
 
 export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
   schemaVersion: 1,
-  plantFreightPct: 0.2,
+  plantFreightPct: 0.25,
   potFreightPct: 0.25,
   materialFreightPct: 0.25,
+  plantingWithoutPotFeePerPlant: 12,
+  guaranteeAnnualAddOnPct: 15,
+  replacementReservePct: 5,
   markupMin: 1.5,
   markupMax: 3.0,
   markupStep: 0.5,
@@ -272,6 +371,10 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
     { maxExclusive: null, factor: 0.45 },
   ],
   rotationPlantsPerHour: 15,
+  rotationTruckFeeRanges: [
+    { from: 1, to: 20, fee: 25 },
+    { from: 21, to: null, fee: 50 },
+  ],
   rotationTruckFeeOptions: [25, 50],
   defaultRotationTruckFee: 25,
   rotationFrequencyWeeksOptions: [4, 6, 8],
@@ -296,7 +399,7 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
     { sizeInches: 8, price: 5.96 },
   ],
   maintenanceAnnualCostFraction: 0.4,
-  vendorHomeAddress: "Orlando, FL, USA",
+  vendorHomeAddress: "1751 Directors Row, Orlando, FL 32809, Estados Unidos",
   simulatedMaxDriveMinutes: 60,
   laborAuto: {
     enabledByDefault: true,
@@ -338,6 +441,17 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
       { maxCount: 40, hoursPerPlant: 0.3 },
       { maxCount: null, hoursPerPlant: 0.25 },
     ],
+    cppByDiameterPoints: [
+      { diameterInches: 8, cpp: 50, minEmployees: 1, twoPeopleThresholdQty: 50 },
+      { diameterInches: 10, cpp: 30, minEmployees: 1, twoPeopleThresholdQty: 30 },
+      { diameterInches: 14, cpp: 20, minEmployees: 1, twoPeopleThresholdQty: 20 },
+      { diameterInches: 17, cpp: 10, minEmployees: 1, twoPeopleThresholdQty: 10 },
+      { diameterInches: 19, cpp: 1.5, minEmployees: 1, twoPeopleThresholdQty: 1.5 },
+    ],
+    cppInterpolationMode: "linear",
+    missingDiameterFallbackCpp: 1.5,
+    missingDiameterFallbackMinEmployees: 1,
+    missingDiameterTwoPeopleThresholdQty: 1.5,
   },
   defaultPlantEnvironment: "indoor",
   // Reference for the default rule of thumb:
@@ -451,6 +565,38 @@ export function mergeWithPricingDefaults(
   const merged = {
     ...DEFAULT_PRICING_ENGINE_CONFIG,
     ...partial,
+    plantingWithoutPotFeePerPlant:
+      typeof (partial as { plantingWithoutPotFeePerPlant?: unknown })
+        .plantingWithoutPotFeePerPlant === "number" &&
+      Number.isFinite(
+        (partial as { plantingWithoutPotFeePerPlant?: number })
+          .plantingWithoutPotFeePerPlant,
+      ) &&
+      (partial as { plantingWithoutPotFeePerPlant?: number })
+        .plantingWithoutPotFeePerPlant >= 0
+        ? (partial as { plantingWithoutPotFeePerPlant: number })
+            .plantingWithoutPotFeePerPlant
+        : DEFAULT_PRICING_ENGINE_CONFIG.plantingWithoutPotFeePerPlant,
+    guaranteeAnnualAddOnPct:
+      typeof (partial as { guaranteeAnnualAddOnPct?: unknown })
+        .guaranteeAnnualAddOnPct === "number" &&
+      Number.isFinite(
+        (partial as { guaranteeAnnualAddOnPct?: number })
+          .guaranteeAnnualAddOnPct,
+      ) &&
+      (partial as { guaranteeAnnualAddOnPct?: number }).guaranteeAnnualAddOnPct >=
+        0
+        ? (partial as { guaranteeAnnualAddOnPct: number }).guaranteeAnnualAddOnPct
+        : DEFAULT_PRICING_ENGINE_CONFIG.guaranteeAnnualAddOnPct,
+    replacementReservePct:
+      typeof (partial as { replacementReservePct?: unknown })
+        .replacementReservePct === "number" &&
+      Number.isFinite(
+        (partial as { replacementReservePct?: number }).replacementReservePct,
+      ) &&
+      (partial as { replacementReservePct?: number }).replacementReservePct >= 0
+        ? (partial as { replacementReservePct: number }).replacementReservePct
+        : DEFAULT_PRICING_ENGINE_CONFIG.replacementReservePct,
     overheadBrackets:
       Array.isArray((partial as { overheadBrackets?: unknown }).overheadBrackets) &&
       (partial as { overheadBrackets: unknown[] }).overheadBrackets.length === 4
@@ -468,6 +614,10 @@ export function mergeWithPricingDefaults(
       ? (partial as { subIrrigationTable: PricingEngineConfig["subIrrigationTable"] })
           .subIrrigationTable
       : DEFAULT_PRICING_ENGINE_CONFIG.subIrrigationTable,
+    rotationTruckFeeRanges: normalizeTruckFeeRanges(
+      (partial as { rotationTruckFeeRanges?: unknown }).rotationTruckFeeRanges,
+      DEFAULT_PRICING_ENGINE_CONFIG.rotationTruckFeeRanges,
+    ),
     laborAuto: mergeLaborAuto(
       (partial as { laborAuto?: unknown }).laborAuto,
     ),
@@ -536,6 +686,32 @@ function mergeLaborAuto(partial: unknown): LaborAutoConfig {
       Array.isArray(p.simplifiedByCount) && p.simplifiedByCount.length > 0
         ? (p.simplifiedByCount as SimplifiedCountRow[])
         : base.simplifiedByCount,
+    cppByDiameterPoints: normalizeCppPoints(
+      p.cppByDiameterPoints,
+      base.cppByDiameterPoints,
+    ),
+    cppInterpolationMode:
+      p.cppInterpolationMode === "linear"
+        ? p.cppInterpolationMode
+        : base.cppInterpolationMode,
+    missingDiameterFallbackCpp:
+      typeof p.missingDiameterFallbackCpp === "number" &&
+      Number.isFinite(p.missingDiameterFallbackCpp) &&
+      p.missingDiameterFallbackCpp > 0
+        ? p.missingDiameterFallbackCpp
+        : base.missingDiameterFallbackCpp,
+    missingDiameterFallbackMinEmployees:
+      typeof p.missingDiameterFallbackMinEmployees === "number" &&
+      Number.isFinite(p.missingDiameterFallbackMinEmployees) &&
+      p.missingDiameterFallbackMinEmployees >= 1
+        ? Math.floor(p.missingDiameterFallbackMinEmployees)
+        : base.missingDiameterFallbackMinEmployees,
+    missingDiameterTwoPeopleThresholdQty:
+      typeof p.missingDiameterTwoPeopleThresholdQty === "number" &&
+      Number.isFinite(p.missingDiameterTwoPeopleThresholdQty) &&
+      p.missingDiameterTwoPeopleThresholdQty > 0
+        ? p.missingDiameterTwoPeopleThresholdQty
+        : base.missingDiameterTwoPeopleThresholdQty,
     // Legacy fields preserved verbatim (no longer consumed by engine).
     crewThresholdInstallMinutes: p.crewThresholdInstallMinutes,
     defaultLoadHours: p.defaultLoadHours,
@@ -544,4 +720,71 @@ function mergeLaborAuto(partial: unknown): LaborAutoConfig {
     crewSmall: p.crewSmall,
     crewLarge: p.crewLarge,
   };
+}
+
+function normalizeCppPoints(
+  candidate: unknown,
+  fallback: CppByDiameterPoint[],
+): CppByDiameterPoint[] {
+  if (!Array.isArray(candidate)) return fallback;
+  const cleaned = candidate
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const r = row as { diameterInches?: unknown; cpp?: unknown };
+      const minRaw = row as { minEmployees?: unknown; twoPeopleThresholdQty?: unknown };
+      const diameterInches = Number(r.diameterInches);
+      const cpp = Number(r.cpp);
+      const minEmployees = Number(minRaw.minEmployees);
+      const twoPeopleThresholdQty = Number(minRaw.twoPeopleThresholdQty);
+      if (!Number.isFinite(diameterInches) || !Number.isFinite(cpp)) return null;
+      if (diameterInches < 0 || cpp <= 0) return null;
+      return {
+        diameterInches,
+        cpp,
+        minEmployees:
+          Number.isFinite(minEmployees) && minEmployees >= 1
+            ? Math.floor(minEmployees)
+            : 1,
+        twoPeopleThresholdQty:
+          Number.isFinite(twoPeopleThresholdQty) && twoPeopleThresholdQty > 0
+            ? twoPeopleThresholdQty
+            : undefined,
+      };
+    })
+    .filter((row): row is CppByDiameterPoint => row != null)
+    .sort((a, b) => a.diameterInches - b.diameterInches);
+  if (cleaned.length < 2) return fallback;
+  return cleaned;
+}
+
+function normalizeTruckFeeRanges(
+  candidate: unknown,
+  fallback: TruckFeeRange[],
+): TruckFeeRange[] {
+  if (!Array.isArray(candidate)) return fallback;
+  const cleaned = candidate
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const r = row as { from?: unknown; to?: unknown; fee?: unknown };
+      const from = Number(r.from);
+      const fee = Number(r.fee);
+      const toRaw = r.to;
+      const to =
+        toRaw === null || toRaw === undefined || toRaw === ""
+          ? null
+          : Number(toRaw);
+      if (!Number.isFinite(from) || !Number.isFinite(fee)) return null;
+      if (from < 1 || fee <= 0) return null;
+      if (to !== null && (!Number.isFinite(to) || to < from)) return null;
+      return {
+        from: Math.floor(from),
+        to: to === null ? null : Math.floor(to),
+        fee,
+      };
+    })
+    .filter((row): row is TruckFeeRange => row != null)
+    .sort((a, b) => a.from - b.from);
+  if (!cleaned.length) return fallback;
+  // Let schema superRefine validate contiguity and infinity constraints.
+  return cleaned;
 }

@@ -22,24 +22,29 @@ export interface PlantCatalogEntry {
   growers: GrowerOption[];
 }
 
+/**
+ * Business reference for nearby suppliers:
+ * keep grower/supplier addresses in Central Florida (<= 80km target radius).
+ */
+
 const DEFAULT_GROWERS: GrowerOption[] = [
   {
     id: "g1",
     name: "Sunshine Nurseries",
     price: 0,
-    address: "123 Floral Way, Apopka, FL",
+    address: "2525 Clarcona Rd, Apopka, FL 32703",
   },
   {
     id: "g2",
     name: "Green Leaf Farms",
     price: 0,
-    address: "456 Plant St, Homestead, FL",
+    address: "610 Garden Commerce Pkwy, Winter Garden, FL",
   },
   {
     id: "g3",
     name: "Exotic Botanicals",
     price: 0,
-    address: "789 Orchid Blvd, Miami, FL",
+    address: "890 Plant District Rd, Sanford, FL",
   },
 ];
 
@@ -97,6 +102,16 @@ const DEFAULT_SIZE_INCHES_BY_SELECTION: Record<string, number> = {
   SHEET_6: 8,
 };
 
+/** Only Orchids at 17" are flagged for rotation in seed data; sync still requires keyword + this flag. */
+function seedRequiresRotationForCatalogEntry(
+  commonName: string,
+  sizeInches: number,
+): boolean {
+  const n = commonName.trim().toLowerCase();
+  if (!n.includes("orchid")) return false;
+  return sizeInches === 17;
+}
+
 const plants: PlantCatalogEntry[] = PLANT_REFERENCE.plants.map((p) => {
   const inches =
     DEFAULT_SIZE_INCHES_BY_SELECTION[p.selectionSheet ?? ""] ?? 12;
@@ -109,7 +124,7 @@ const plants: PlantCatalogEntry[] = PLANT_REFERENCE.plants.map((p) => {
     scientificName: p.scientificName,
     size: `${inches}"`,
     sizeInches: inches,
-    requiresRotation: false,
+    requiresRotation: seedRequiresRotationForCatalogEntry(p.commonName, inches),
     catalogCode: p.catalogCode,
     imagePublicPath: p.imagePublicPath ?? null,
     searchKey: buildSearchKey([
@@ -176,12 +191,12 @@ const POT_SUPPLIER_POOL: Array<Omit<GrowerOption, "price">> = [
   {
     id: "urban-pottery",
     name: "Urban Pottery Supply",
-    address: "905 Industrial Ave, Tampa, FL",
+    address: "505 Logistics Loop, Kissimmee, FL",
   },
   {
     id: "coastal-containers",
     name: "Coastal Containers Wholesale",
-    address: "3120 Harbor Commerce Blvd, Miami, FL",
+    address: "2550 Commerce Park Dr, Altamonte Springs, FL",
   },
 ];
 

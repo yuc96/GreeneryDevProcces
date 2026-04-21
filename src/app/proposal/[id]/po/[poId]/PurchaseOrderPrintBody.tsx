@@ -115,7 +115,11 @@ export function PurchaseOrderPrintBody({
                         <div className="po-vendor-addr">{it.vendorAddress}</div>
                         {it.category === "plant" ? (
                           <div className="po-line-note">
-                            {it.clientOwnsPot ? "Client-owned pot. " : null}
+                            {it.plantingWithoutPot
+                              ? "Planting without pot. "
+                              : it.clientOwnsPot
+                                ? "Client-owned pot. "
+                                : null}
                             {it.requiresRotation
                               ? "Includes rotation program."
                               : null}

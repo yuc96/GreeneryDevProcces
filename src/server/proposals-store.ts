@@ -18,6 +18,7 @@ import {
   defaultLaborLines,
   normalizeLaborLines,
   pickDefaultRotationCatalogPrice,
+  truckFeeForPlantCount,
   type RotationLineState,
 } from "./pricing/compute-proposal";
 import {
@@ -52,11 +53,9 @@ export interface ProposalItemInput {
   /** Plants only; data URLs from browser uploads. */
   photos?: string[];
   sizeInches?: number | null;
-  accessDifficulty?: "easy" | "difficult";
-  stairsFloors?: number;
-  extraDistanceMeters?: number;
-  fragile?: boolean;
   environment?: "indoor" | "outdoor";
+  plantingWithoutPot?: boolean;
+  guaranteed?: boolean;
   relatedPlantItemId?: string;
   stagingImageUrl?: string;
 }
@@ -69,7 +68,7 @@ export interface ProposalRotationInput {
   frequencyName: string;
   frequencyWeeks: 4 | 6 | 8;
   rotationUnitPrice: number;
-  truckFee: 25 | 50;
+  truckFee: number;
 }
 
 export interface PatchProposalGeneralInput {
@@ -121,6 +120,15 @@ function ensureProposalShape(p: ProposalEntity): void {
   syncLegacyCommissionBeneficiaryFields(p);
   if (!Array.isArray(p.requirementLines)) {
     p.requirementLines = [];
+  } else {
+    p.requirementLines = p.requirementLines.map((line) => ({
+      ...line,
+      environment:
+        line.environment === "outdoor" ? "outdoor" : "indoor",
+      clientHasPot: Boolean(line.clientHasPot),
+      plantingWithoutPot: Boolean(line.plantingWithoutPot),
+      guaranteed: Boolean(line.guaranteed),
+    }));
   }
 }
 
@@ -131,6 +139,16 @@ function syncLegacyCommissionBeneficiaryFields(p: ProposalEntity): void {
   } else {
     p.commissionBeneficiaryId = undefined;
   }
+}
+
+function plantAllowsRotationByKeyword(plantName: string): boolean {
+  const name = plantName.trim().toLowerCase();
+  if (!name) return false;
+  return (
+    name.includes("orchid") ||
+    name.includes("annual") ||
+    name.includes("mum")
+  );
 }
 
 export class ProposalsStore {
@@ -353,16 +371,15 @@ export class ProposalsStore {
         vendorAddress: row.vendorAddress,
         photos,
         sizeInches: row.sizeInches ?? prev?.sizeInches ?? null,
-        accessDifficulty:
-          row.accessDifficulty ?? prev?.accessDifficulty ?? "easy",
-        stairsFloors: row.stairsFloors ?? prev?.stairsFloors ?? 0,
-        extraDistanceMeters:
-          row.extraDistanceMeters ?? prev?.extraDistanceMeters ?? 0,
-        fragile:
-          row.fragile !== undefined
-            ? row.fragile
-            : (prev?.fragile ?? false),
         environment: row.environment ?? prev?.environment ?? "indoor",
+        plantingWithoutPot:
+          row.plantingWithoutPot !== undefined
+            ? row.plantingWithoutPot
+            : (prev?.plantingWithoutPot ?? false),
+        guaranteed:
+          row.guaranteed !== undefined
+            ? row.guaranteed
+            : (prev?.guaranteed ?? false),
         relatedPlantItemId:
           row.category === "staging"
             ? (row.relatedPlantItemId ?? prev?.relatedPlantItemId)
@@ -389,8 +406,14 @@ export class ProposalsStore {
 
   private syncRotationsFromPlants(p: ProposalEntity) {
     const cfg = getCachedPricingConfig();
+    const totalPlantUnits = p.items
+      .filter((i) => i.category === "plant")
+      .reduce((sum, i) => sum + Math.max(0, Number(i.qty) || 0), 0);
     const fromPlants = p.items.filter(
-      (i) => i.category === "plant" && i.requiresRotation,
+      (i) =>
+        i.category === "plant" &&
+        i.requiresRotation &&
+        plantAllowsRotationByKeyword(i.name),
     );
     const existingByItem = new Map(
       p.rotations.map((r) => [r.itemId, r] as const),
@@ -399,7 +422,7 @@ export class ProposalsStore {
     for (const plant of fromPlants) {
       const prev = existingByItem.get(plant.id);
       const defaultWeeks = cfg.defaultRotationFrequencyWeeks;
-      const defaultTruck = cfg.defaultRotationTruckFee;
+      const defaultTruck = truckFeeForPlantCount(totalPlantUnits, cfg);
       const defaultPrice = pickDefaultRotationCatalogPrice(plant.name, cfg);
       next.push({
         id: prev?.id ?? `rot-${plant.id}`,
@@ -456,6 +479,8 @@ export class ProposalsStore {
       laborCost: eng.laborCost,
       laborByLine: eng.laborByLine,
       maintenanceMonthly: eng.maintenanceMonthly,
+      guaranteedPlantsMonthly: eng.guaranteedPlantsMonthly,
+      annualReplacementBudget: eng.annualReplacementBudget,
       maintenanceBreakdown: eng.maintenanceBreakdown,
       rotationsAnnual: eng.rotationsAnnual,
       rotationLines: eng.rotationLines,
@@ -581,6 +606,7 @@ export class ProposalsStore {
         markup: it.markup,
         freightRate: it.freightRate,
         clientOwnsPot: it.clientOwnsPot,
+        plantingWithoutPot: it.plantingWithoutPot ?? false,
         requiresRotation: it.requiresRotation,
         vendorName: it.vendorName?.trim() || "—",
         vendorAddress: it.vendorAddress?.trim() || "—",

@@ -317,7 +317,11 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
                       <td className="text-center">{row.qty}</td>
                       <td>{displayPlantLabel(row.name)}</td>
                       <td className="text-right text-[10px] text-gray-600">
-                        {row.clientOwnsPot ? "Client-owned" : "Included"}
+                        {row.plantingWithoutPot
+                          ? "Without pot"
+                          : row.clientOwnsPot
+                            ? "Client-owned"
+                            : "Included"}
                       </td>
                     </tr>
                   ))}
@@ -392,6 +396,12 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
                   <td>Guarantee Monthly Maintenance</td>
                   <td className="amount font-semibold text-green-900">
                     {money.format(data.calculations.maintenanceMonthly)}
+                  </td>
+                </tr>
+                <tr>
+                  <td>Annual replacement budget (internal reserve)</td>
+                  <td className="amount font-semibold text-green-900">
+                    {money.format(data.calculations.annualReplacementBudget)}
                   </td>
                 </tr>
                 {data.rotations.map((r) => (

@@ -1,14 +1,11 @@
 import type { ProposalItemInput } from "@/lib/types";
-import {
-  STAGING_CATALOG_DEFAULT_MARKUP,
-  type StagingLibraryItem,
-} from "@/lib/staging-catalog";
+import type { StagingLibraryItem } from "@/lib/staging-catalog";
 import type { PricingEngineConfig } from "@/server/pricing/engine-schema";
 import {
   computeAutoStagingForPlant,
   type StagingMaterialRef,
 } from "@/server/pricing/auto-staging";
-import { parseSizeInchesFromText } from "@/server/pricing/compute-proposal";
+import { parseSizeInchesFromText } from "@/server/pricing/cpp-model";
 
 function freightRateStaging(cfg: PricingEngineConfig): number {
   return cfg.materialFreightPct;
@@ -87,6 +84,7 @@ export function mergeAutoStagingIntoDraft(
             ? it.sizeInches
             : parseSizeInchesFromText(it.name ?? ""),
         environment: env,
+        plantingWithoutPot: Boolean(it.plantingWithoutPot),
       },
       engineConfig,
       materialsRef,
@@ -100,7 +98,7 @@ export function mergeAutoStagingIntoDraft(
         area: it.area,
         qty: c.units,
         wholesaleCost: c.unitWholesale,
-        markup: STAGING_CATALOG_DEFAULT_MARKUP,
+        markup: engineConfig.defaultMarkup,
         freightRate: freightRateStaging(engineConfig),
         clientOwnsPot: false,
         requiresRotation: false,
@@ -124,6 +122,7 @@ export function autoStagingPlantSignature(prev: ProposalItemInput[]): string {
         it.qty,
         it.sizeInches ?? "",
         it.environment ?? "",
+        it.plantingWithoutPot ? "1" : "0",
         it.name,
         it.area ?? "",
       ].join("\u001f"),

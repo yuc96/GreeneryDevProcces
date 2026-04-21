@@ -1,25 +1,21 @@
 import type { ProposalLaborLineEntity } from "../domain";
 import { PROPOSAL_LABOR_KEYS } from "../domain";
 import type {
-  ComplexityBand,
-  LaborAdjustments,
   LaborAutoConfig,
   LineDistributionPct,
   PricingEngineConfig,
-  SimplifiedCountRow,
 } from "./engine-schema";
-import { parseSizeInchesFromText } from "./compute-proposal";
+import {
+  peopleNeededForQtyAndDiameter,
+  parseSizeInchesFromText,
+  resolveCppForDiameter,
+} from "./cpp-model";
 
 export interface AutoLaborPlantInput {
   qty: number;
   sizeInches?: number | null;
   /** Optional name (e.g. 'Ficus Lyrata 14"'); used only if sizeInches not set. */
   name?: string | null;
-  /** Per-line access/handling adjustments. */
-  accessDifficulty?: "easy" | "difficult";
-  stairsFloors?: number;
-  extraDistanceMeters?: number;
-  fragile?: boolean;
 }
 
 export interface AutoLaborInput {
@@ -38,65 +34,25 @@ export interface AutoLaborBandBreakdown {
 
 export interface AutoLaborResult {
   lines: ProposalLaborLineEntity[];
-  /** Sum of (per-plant base × adjustment factors × qty). */
+  /** Person-minutes derived from CPP staffing rule. */
   totalInstallMinutes: number;
-  /** People needed in parallel = ceil(totalHandlingManMinutes / target). */
+  /** People needed in parallel (CPP-driven). */
   peakPeople: number;
   /**
    * Average clock minutes per person for handling (load/unload/install/cleanUp):
-   * total handling person-minutes ÷ crew size (capped by target).
+   * total handling person-minutes ÷ crew size.
    */
   clockMinutesPerPerson: number;
-  /** Configured target (e.g. 60 = 1 hour per person). */
+  /** Configured target (e.g. 120 = 2 hours/person). */
   targetClockMinutesPerPerson: number;
   driveMinutesOneWay: number;
   totalLaborCost: number;
   bands: AutoLaborBandBreakdown[];
+  fallbackDiameterCount: number;
 }
 
-function matchBand(
-  bands: ComplexityBand[],
-  inches: number | null,
-): ComplexityBand {
-  if (inches == null || !Number.isFinite(inches)) {
-    return (
-      bands.find((b) => b.id === "medium") ??
-      bands[Math.min(1, bands.length - 1)] ??
-      bands[0]
-    );
-  }
-  for (const b of bands) {
-    const low = b.minInches == null ? -Infinity : b.minInches;
-    const high = b.maxInches == null ? Infinity : b.maxInches;
-    if (inches >= low && inches <= high) return b;
-  }
-  return bands[bands.length - 1];
-}
-
-function adjustmentFactor(
-  adj: LaborAdjustments,
-  plant: AutoLaborPlantInput,
-): { factor: number; extraMinutesPerPlant: number } {
-  let factor = 1;
-  if (plant.accessDifficulty === "difficult") {
-    factor *= adj.difficultAccessFactor;
-  }
-  const floors = Math.max(0, Math.floor(plant.stairsFloors ?? 0));
-  if (floors > 0) {
-    factor *= Math.pow(adj.stairsPerFloorFactor, floors);
-  }
-  if (plant.fragile) {
-    factor *= adj.fragileFactor;
-  }
-  let extra = 0;
-  const distance = Math.max(0, Number(plant.extraDistanceMeters ?? 0));
-  if (distance > adj.distanceBaselineMeters && adj.distanceStepMeters > 0) {
-    const excess = distance - adj.distanceBaselineMeters;
-    const steps = Math.ceil(excess / adj.distanceStepMeters);
-    extra = steps * adj.distanceExtraMinutes;
-  }
-  return { factor, extraMinutesPerPlant: extra };
-}
+const HANDLING_LINE_KEYS = ["load", "unload", "install", "cleanUp"] as const;
+type HandlingLineKey = (typeof HANDLING_LINE_KEYS)[number];
 
 function resolveInches(plant: AutoLaborPlantInput): number | null {
   if (
@@ -109,9 +65,7 @@ function resolveInches(plant: AutoLaborPlantInput): number | null {
   return null;
 }
 
-/**
- * Resolve drive minutes (handles fallback) and corresponding hours.
- */
+/** Resolve drive minutes (handles fallback) and corresponding hours. */
 function resolveDrive(
   driveMinutesOneWay: number | null | undefined,
   auto: LaborAutoConfig,
@@ -131,13 +85,6 @@ function resolveDrive(
   return { driveMinutesUsed, driveHours };
 }
 
-/**
- * Crew size so no person exceeds `targetClockMinutesPerPerson` on **total**
- * handling person-minutes (floors + plant-derived split).
- *
- *   peopleNeeded = max(1, ceil(totalHandlingManMinutes / target))
- *   clockMinutesPerPerson = totalHandlingManMinutes / peopleNeeded
- */
 function deriveCrewSize(
   totalManMinutes: number,
   targetClockMinutesPerPerson: number,
@@ -151,18 +98,6 @@ function deriveCrewSize(
   return { peopleNeeded, clockMinutesPerPerson };
 }
 
-const HANDLING_LINE_KEYS = [
-  "load",
-  "unload",
-  "install",
-  "cleanUp",
-] as const;
-type HandlingLineKey = (typeof HANDLING_LINE_KEYS)[number];
-
-/**
- * Normalize load/unload/install/cleanUp weights so plant-derived man-minutes
- * split across phases in a stable way (legacy configs often did not sum to 1).
- */
 function normalizedHandlingWeights(
   pct: LineDistributionPct,
 ): Record<HandlingLineKey, number> {
@@ -189,59 +124,73 @@ function normalizedHandlingWeights(
   };
 }
 
-/** Person-minutes per handling line: floor + (weight × plant man-minutes). */
 function handlingManMinutesByKey(
-  plantManMinutes: number,
+  totalInstallManMinutes: number,
   auto: LaborAutoConfig,
 ): Record<HandlingLineKey, number> {
   const w = normalizedHandlingWeights(auto.lineDistributionPct);
-  const m = auto.handlingMinimumPersonMinutes;
-  const out = {} as Record<HandlingLineKey, number>;
-  for (const key of HANDLING_LINE_KEYS) {
-    out[key] = m[key] + w[key] * plantManMinutes;
-  }
-  return out;
+  return {
+    load: totalInstallManMinutes * w.load,
+    unload: totalInstallManMinutes * w.unload,
+    install: totalInstallManMinutes * w.install,
+    cleanUp: totalInstallManMinutes * w.cleanUp,
+  };
 }
 
 export function computeAutoLaborLines(input: AutoLaborInput): AutoLaborResult {
   const { plantItems, driveMinutesOneWay, config } = input;
   const auto: LaborAutoConfig = config.laborAuto;
-  const bands = auto.complexityBands;
+  const target = Math.max(1, auto.targetClockMinutesPerPerson);
 
   let totalInstallMinutes = 0;
+  let fallbackDiameterCount = 0;
   const breakdownMap = new Map<string, AutoLaborBandBreakdown>();
 
   for (const it of plantItems) {
     const qty = Math.max(0, Number(it.qty) || 0);
     if (qty <= 0) continue;
     const inches = resolveInches(it);
-    const band = matchBand(bands, inches);
-    const { factor, extraMinutesPerPlant } = adjustmentFactor(
-      auto.adjustments,
-      it,
-    );
-    const minutesPerPlant = band.baseMinutes * factor + extraMinutesPerPlant;
-    const lineMinutes = minutesPerPlant * qty;
+    const cppRes = resolveCppForDiameter(inches, {
+      cppByDiameterPoints: auto.cppByDiameterPoints,
+      cppInterpolationMode: auto.cppInterpolationMode,
+      missingDiameterFallbackCpp: auto.missingDiameterFallbackCpp,
+      missingDiameterFallbackMinEmployees:
+        auto.missingDiameterFallbackMinEmployees,
+      missingDiameterTwoPeopleThresholdQty:
+        auto.missingDiameterTwoPeopleThresholdQty,
+    });
+    if (cppRes.usedFallbackDiameter) {
+      fallbackDiameterCount += qty;
+    }
+    const peopleForLine = peopleNeededForQtyAndDiameter(qty, inches, {
+      cppByDiameterPoints: auto.cppByDiameterPoints,
+      cppInterpolationMode: auto.cppInterpolationMode,
+      missingDiameterFallbackCpp: auto.missingDiameterFallbackCpp,
+      missingDiameterFallbackMinEmployees:
+        auto.missingDiameterFallbackMinEmployees,
+      missingDiameterTwoPeopleThresholdQty:
+        auto.missingDiameterTwoPeopleThresholdQty,
+    });
+    const lineMinutes = peopleForLine * target;
     totalInstallMinutes += lineMinutes;
 
-    const prev = breakdownMap.get(band.id);
+    const prev = breakdownMap.get(cppRes.bandId);
     if (prev) {
       prev.plantCount += qty;
       prev.totalInstallMinutes += lineMinutes;
     } else {
-      breakdownMap.set(band.id, {
-        bandId: band.id,
-        bandLabel: band.label,
+      breakdownMap.set(cppRes.bandId, {
+        bandId: cppRes.bandId,
+        bandLabel: cppRes.bandLabel,
         plantCount: qty,
         totalInstallMinutes: lineMinutes,
       });
     }
   }
 
-  const plantManMinutes = totalInstallMinutes;
-  const hasPlantWork = plantManMinutes > 0;
+  const hasPlantWork = totalInstallMinutes > 0;
   const handlingByKey = hasPlantWork
-    ? handlingManMinutesByKey(plantManMinutes, auto)
+    ? handlingManMinutesByKey(totalInstallMinutes, auto)
     : ({
         load: 0,
         unload: 0,
@@ -254,18 +203,15 @@ export function computeAutoLaborLines(input: AutoLaborInput): AutoLaborResult {
 
   const { peopleNeeded, clockMinutesPerPerson } = deriveCrewSize(
     totalHandlingManMinutes,
-    auto.targetClockMinutesPerPerson,
+    target,
   );
-  const driverPeople = Math.max(1, Math.floor(auto.driverPeople));
+  const driverPeople = 1;
   const { driveMinutesUsed, driveHours } = resolveDrive(
     driveMinutesOneWay,
     auto,
   );
 
-  const handlingHoursByKey: Record<
-    "load" | "unload" | "install" | "cleanUp",
-    number
-  > = {
+  const handlingHoursByKey: Record<HandlingLineKey, number> = {
     load: 0,
     unload: 0,
     install: 0,
@@ -293,27 +239,25 @@ export function computeAutoLaborLines(input: AutoLaborInput): AutoLaborResult {
     0,
   );
 
-  const bandsOrder = bands.map((b) => b.id);
-  const bands_out: AutoLaborBandBreakdown[] = Array.from(
+  const bandsOut: AutoLaborBandBreakdown[] = Array.from(
     breakdownMap.values(),
   )
     .map((b) => ({
       ...b,
       totalInstallMinutes: round2(b.totalInstallMinutes),
     }))
-    .sort(
-      (a, b) => bandsOrder.indexOf(a.bandId) - bandsOrder.indexOf(b.bandId),
-    );
+    .sort((a, b) => a.bandLabel.localeCompare(b.bandLabel));
 
   return {
     lines,
     totalInstallMinutes: round2(totalInstallMinutes),
     peakPeople: peopleNeeded,
     clockMinutesPerPerson: round2(clockMinutesPerPerson),
-    targetClockMinutesPerPerson: auto.targetClockMinutesPerPerson,
+    targetClockMinutesPerPerson: target,
     driveMinutesOneWay: round2(driveMinutesUsed),
     totalLaborCost: round2(totalLaborCost),
-    bands: bands_out,
+    bands: bandsOut,
+    fallbackDiameterCount,
   };
 }
 
@@ -325,22 +269,20 @@ export interface SimplifiedLaborInput {
 
 export interface SimplifiedLaborResult {
   lines: ProposalLaborLineEntity[];
-  row: SimplifiedCountRow;
-  /** Total man-hours of install work (count × hoursPerPlant). */
+  /** Total install workload used by CPP fallback in hours. */
   totalInstallHours: number;
-  /** People derived from the target clock-minutes-per-person rule. */
+  /** People derived from the CPP fallback rule. */
   peakPeople: number;
   /** Average clock minutes per person across handling lines. */
   clockMinutesPerPerson: number;
   driveMinutesOneWay: number;
   totalLaborCost: number;
+  fallbackDiameterCount: number;
 }
 
 /**
- * Estimation used in the Requirements step before Products is filled. Picks a
- * row from `simplifiedByCount` based on total plant count to estimate man-hours
- * per plant, then applies the same "≤ target clock minutes per person" rule
- * as the detailed engine.
+ * Requirements-step estimation: without reliable per-item diameter at this
+ * point, apply the conservative fallback CPP for all plants.
  */
 export function computeSimplifiedLabor(
   input: SimplifiedLaborInput,
@@ -348,50 +290,44 @@ export function computeSimplifiedLabor(
   const { plantCount, driveMinutesOneWay, config } = input;
   const auto = config.laborAuto;
   const count = Math.max(0, Math.floor(plantCount));
-  const sorted = [...auto.simplifiedByCount].sort((a, b) => {
-    const am = a.maxCount ?? Number.POSITIVE_INFINITY;
-    const bm = b.maxCount ?? Number.POSITIVE_INFINITY;
-    return am - bm;
+  const target = Math.max(1, auto.targetClockMinutesPerPerson);
+  const peopleNeeded = peopleNeededForQtyAndDiameter(count, null, {
+    cppByDiameterPoints: auto.cppByDiameterPoints,
+    cppInterpolationMode: auto.cppInterpolationMode,
+    missingDiameterFallbackCpp: auto.missingDiameterFallbackCpp,
+    missingDiameterFallbackMinEmployees: auto.missingDiameterFallbackMinEmployees,
+    missingDiameterTwoPeopleThresholdQty:
+      auto.missingDiameterTwoPeopleThresholdQty,
   });
-  const row =
-    sorted.find((r) => r.maxCount != null && count <= r.maxCount) ??
-    sorted[sorted.length - 1];
-
-  const totalInstallHours = count * row.hoursPerPlant;
-  const plantManMinutes = totalInstallHours * 60;
-  const hasPlantWork = count > 0;
-  const handlingByKey = hasPlantWork
-    ? handlingManMinutesByKey(plantManMinutes, auto)
+  const totalInstallMinutes = count > 0 ? peopleNeeded * target : 0;
+  const totalInstallHours = totalInstallMinutes / 60;
+  const handlingByKey = totalInstallMinutes
+    ? handlingManMinutesByKey(totalInstallMinutes, auto)
     : ({
         load: 0,
         unload: 0,
         install: 0,
         cleanUp: 0,
       } as Record<HandlingLineKey, number>);
-  const totalHandlingManMinutes = hasPlantWork
+  const totalHandlingManMinutes = totalInstallMinutes
     ? HANDLING_LINE_KEYS.reduce((s, k) => s + handlingByKey[k], 0)
     : 0;
+  const clockMinutesPerPerson =
+    peopleNeeded > 0 ? totalHandlingManMinutes / peopleNeeded : 0;
 
-  const { peopleNeeded, clockMinutesPerPerson } = deriveCrewSize(
-    totalHandlingManMinutes,
-    auto.targetClockMinutesPerPerson,
-  );
-  const driverPeople = Math.max(1, Math.floor(auto.driverPeople));
+  const driverPeople = 1;
   const { driveMinutesUsed, driveHours } = resolveDrive(
     driveMinutesOneWay,
     auto,
   );
 
-  const handlingHoursByKey: Record<
-    "load" | "unload" | "install" | "cleanUp",
-    number
-  > = {
+  const handlingHoursByKey: Record<HandlingLineKey, number> = {
     load: 0,
     unload: 0,
     install: 0,
     cleanUp: 0,
   };
-  if (hasPlantWork && peopleNeeded > 0) {
+  if (totalInstallMinutes && peopleNeeded > 0) {
     for (const key of HANDLING_LINE_KEYS) {
       handlingHoursByKey[key] = handlingByKey[key] / peopleNeeded / 60;
     }
@@ -411,14 +347,15 @@ export function computeSimplifiedLabor(
     (s, l) => s + l.people * l.hours * config.hourlyRate,
     0,
   );
+
   return {
     lines,
-    row,
     totalInstallHours: round2(totalInstallHours),
     peakPeople: peopleNeeded,
     clockMinutesPerPerson: round2(clockMinutesPerPerson),
     driveMinutesOneWay: round2(driveMinutesUsed),
     totalLaborCost: round2(totalLaborCost),
+    fallbackDiameterCount: count,
   };
 }
 

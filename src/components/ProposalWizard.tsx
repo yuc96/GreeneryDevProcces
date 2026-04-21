@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -44,6 +45,10 @@ import { ClientProposalBody } from "@/app/proposal/[id]/client/ClientProposalBod
 import { CommissionBeneficiaryFormModal } from "@/components/CommissionBeneficiaryFormModal";
 import { PrintBar } from "@/components/PrintBar";
 import {
+  markupOptionsForSelect,
+  snapMarkupToPricingLadder,
+} from "@/lib/markup-select";
+import {
   buildStagingLibraryFromJson,
   type StagingLibraryItem,
 } from "@/lib/staging-catalog";
@@ -51,6 +56,7 @@ import {
   autoStagingPlantSignature,
   buildStagingDisplayGroups,
   mergeAutoStagingIntoDraft,
+  plantKeyForStaging,
   serializeAutoStagingSlice,
   stagingGroupKeyFromLine,
   stagingSectionBanner,
@@ -77,13 +83,14 @@ import type {
 import {
   computeRotationMonthly,
   defaultLaborLines,
-  parseSizeInchesFromText,
+  truckFeeForPlantCount,
 } from "@/server/pricing/compute-proposal";
 import {
   computeAutoLaborLines,
   computeSimplifiedLabor,
   simulateDriveMinutes,
 } from "@/server/pricing/auto-labor";
+import { parseSizeInchesFromText } from "@/server/pricing/cpp-model";
 import {
   DEFAULT_PRICING_ENGINE_CONFIG,
   type PricingEngineConfig,
@@ -103,7 +110,6 @@ const STEPS = [
 ] as const;
 
 type MarkupPricingMode = "open" | "sale_type";
-
 function resolveMarkupForSale(
   cfg: PricingEngineConfig,
   saleType: SaleType,
@@ -120,8 +126,6 @@ const money = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-const MARKUPS = [1.45, 1.75, 2, 2.5, 3] as const;
-
 const PRIMARY = "#2b7041";
 const PRIMARY_CLASS = "bg-[#2b7041] hover:bg-[#235a37]";
 const MINT_DONE = "bg-emerald-50 text-emerald-900 border border-emerald-100";
@@ -135,12 +139,11 @@ function commissionSlotsFromProposal(
   >,
 ): string[] {
   const n = Math.max(0, p.commissionBeneficiaries ?? 0);
-  const raw =
-    p.commissionBeneficiaryIds?.length
-      ? [...p.commissionBeneficiaryIds]
-      : p.commissionBeneficiaryId
-        ? [p.commissionBeneficiaryId]
-        : [];
+  const raw = p.commissionBeneficiaryIds?.length
+    ? [...p.commissionBeneficiaryIds]
+    : p.commissionBeneficiaryId
+      ? [p.commissionBeneficiaryId]
+      : [];
   return Array.from({ length: n }, (_, i) => raw[i] ?? "");
 }
 
@@ -182,9 +185,21 @@ function plantItemFromCatalog(
 }
 
 const ROT_PRESETS = [
-  { label: "Every 4 weeks", frequencyName: "Every 4 weeks", frequencyWeeks: 4 as const },
-  { label: "Every 6 weeks", frequencyName: "Every 6 weeks", frequencyWeeks: 6 as const },
-  { label: "Every 8 weeks", frequencyName: "Every 8 weeks", frequencyWeeks: 8 as const },
+  {
+    label: "Every 4 weeks",
+    frequencyName: "Every 4 weeks",
+    frequencyWeeks: 4 as const,
+  },
+  {
+    label: "Every 6 weeks",
+    frequencyName: "Every 6 weeks",
+    frequencyWeeks: 6 as const,
+  },
+  {
+    label: "Every 8 weeks",
+    frequencyName: "Every 8 weeks",
+    frequencyWeeks: 8 as const,
+  },
 ] as const;
 
 const LABOR_LABELS: Record<ProposalLaborLine["key"], string> = {
@@ -208,9 +223,17 @@ function emptyRequirementLine(): ClientRequirementLine {
     plantCatalogId: "",
     area: "",
     qty: 1,
+    environment: "indoor",
+    clientHasPot: false,
+    plantingWithoutPot: false,
+    guaranteed: false,
     potType: "",
     notes: "",
   };
+}
+
+function requirementNeedsPotSelection(line: ClientRequirementLine): boolean {
+  return !line.clientHasPot && !line.plantingWithoutPot;
 }
 
 function proposalEntityItemsToDraft(
@@ -232,11 +255,9 @@ function proposalEntityItemsToDraft(
     vendorAddress: it.vendorAddress,
     photos: it.category === "plant" ? [...(it.photos ?? [])] : undefined,
     sizeInches: it.sizeInches ?? undefined,
-    accessDifficulty: it.accessDifficulty,
-    stairsFloors: it.stairsFloors,
-    extraDistanceMeters: it.extraDistanceMeters,
-    fragile: it.fragile,
     environment: it.environment,
+    plantingWithoutPot: it.plantingWithoutPot,
+    guaranteed: it.guaranteed,
     relatedPlantItemId: it.relatedPlantItemId,
     stagingImageUrl: it.stagingImageUrl,
   }));
@@ -254,10 +275,22 @@ function parseRequirementsCsv(
   const iArea = idx("area");
   const iQty = idx("qty");
   const iPot = idx("pot_type");
+  const iEnv = idx("environment");
+  const iClientHasPot = idx("client_has_pot");
+  const iPlantingWithoutPot = idx("planting_without_pot");
+  const iGuaranteed = idx("guaranteed");
+  const iPotMode = idx("pot_mode");
   const iNotes = idx("notes");
   const iPlant = idx("plant_keyword");
   const iPlantId = idx("plant_catalog_id");
-  if (iArea < 0 && iQty < 0 && iPot < 0 && iNotes < 0 && iPlant < 0 && iPlantId < 0) {
+  if (
+    iArea < 0 &&
+    iQty < 0 &&
+    iPot < 0 &&
+    iNotes < 0 &&
+    iPlant < 0 &&
+    iPlantId < 0
+  ) {
     return [];
   }
   const out: ClientRequirementLine[] = [];
@@ -268,9 +301,41 @@ function parseRequirementsCsv(
     const area = iArea >= 0 ? (cells[iArea] ?? "") : "";
     const qty = Math.max(1, Number(cells[iQty >= 0 ? iQty : 0]) || 1);
     const potType = iPot >= 0 ? (cells[iPot] ?? "") : "";
+    const envRaw = iEnv >= 0 ? (cells[iEnv] ?? "") : "";
+    const environment =
+      envRaw.toLowerCase() === "outdoor" ? "outdoor" : "indoor";
+    const yesNo = (v: string) =>
+      ["1", "true", "yes", "y"].includes(v.trim().toLowerCase());
+    const potMode =
+      iPotMode >= 0 ? (cells[iPotMode] ?? "").trim().toLowerCase() : "";
+    let clientHasPot =
+      iClientHasPot >= 0 ? yesNo(cells[iClientHasPot] ?? "") : false;
+    let plantingWithoutPot =
+      iPlantingWithoutPot >= 0
+        ? yesNo(cells[iPlantingWithoutPot] ?? "")
+        : false;
+    if (potMode === "client_has_pot") {
+      clientHasPot = true;
+      plantingWithoutPot = false;
+    } else if (potMode === "planting_without_pot") {
+      clientHasPot = false;
+      plantingWithoutPot = true;
+    } else if (potMode === "needs_pot") {
+      clientHasPot = false;
+      plantingWithoutPot = false;
+    }
+    if (clientHasPot && plantingWithoutPot) {
+      plantingWithoutPot = false;
+    }
     const notes = iNotes >= 0 ? (cells[iNotes] ?? "") : "";
+    const guaranteed =
+      iGuaranteed >= 0 ? yesNo(cells[iGuaranteed] ?? "") : false;
     let plantCatalogId = "";
-    if (iPlantId >= 0 && cells[iPlantId] && plants.some((p) => p.id === cells[iPlantId])) {
+    if (
+      iPlantId >= 0 &&
+      cells[iPlantId] &&
+      plants.some((p) => p.id === cells[iPlantId])
+    ) {
       plantCatalogId = cells[iPlantId];
     } else if (iPlant >= 0 && cells[iPlant]) {
       const kw = cells[iPlant].toLowerCase();
@@ -286,6 +351,10 @@ function parseRequirementsCsv(
       plantCatalogId,
       area,
       qty,
+      environment,
+      clientHasPot,
+      plantingWithoutPot,
+      guaranteed,
       potType,
       notes,
     });
@@ -336,8 +405,9 @@ function potItemFromRequirementLine(
   cfg: PricingEngineConfig,
   markup?: number,
 ): ProposalItemInput | null {
+  if (!requirementNeedsPotSelection(line)) return null;
   const pt = line.potType.trim();
-  if (!pt || /client-supplied|no pot po|^client\b/i.test(pt)) return null;
+  if (!pt) return null;
   const match = findPotCatalogMatch(pt, pots);
   if (match?.suppliers.length) {
     const sorted = [...match.suppliers].sort((a, b) => a.price - b.price);
@@ -375,8 +445,9 @@ function autoSourcePotItemsFromRequirements(
   >();
 
   for (const line of requirementLines) {
+    if (!requirementNeedsPotSelection(line)) continue;
     const pt = line.potType.trim();
-    if (!pt || /client-supplied|no pot po|^client\b/i.test(pt)) continue;
+    if (!pt) continue;
     const key = pt.toLowerCase();
     const area = line.area.trim();
     const bucket = grouped.get(key);
@@ -399,11 +470,12 @@ function autoSourcePotItemsFromRequirements(
     const groupedLine: ClientRequirementLine = {
       id: entry.firstLineId,
       plantCatalogId: "",
-      area:
-        areaValues.length <= 1
-          ? (areaValues[0] ?? "")
-          : "Multiple areas",
+      area: areaValues.length <= 1 ? (areaValues[0] ?? "") : "Multiple areas",
       qty: entry.qty,
+      environment: "indoor",
+      clientHasPot: false,
+      plantingWithoutPot: false,
+      guaranteed: false,
       potType: entry.potType,
       notes: "",
     };
@@ -424,6 +496,55 @@ function stagingLibraryIdFromCatalogId(catalogId: string): string | null {
   const m = /^staging-json-(\d+)$/.exec(catalogId);
   if (m) return `staging-cat-${m[1]}`;
   return null;
+}
+
+/** Parse `staging-auto-<plantKey>-<materialSourceId>` (plantKey may contain `-`). */
+function parseAutoStagingCatalogId(catalogId: string): {
+  plantKey: string;
+  sourceId: number;
+} | null {
+  if (!catalogId.startsWith("staging-auto-")) return null;
+  const rest = catalogId.slice("staging-auto-".length);
+  const last = rest.lastIndexOf("-");
+  if (last <= 0) return null;
+  const sourcePart = rest.slice(last + 1);
+  const plantKey = rest.slice(0, last);
+  const sourceId = Number(sourcePart);
+  if (!Number.isFinite(sourceId)) return null;
+  return { plantKey, sourceId };
+}
+
+function stagingPresetUsedOnPlant(
+  items: ProposalItemInput[],
+  plantKey: string,
+  preset: StagingLibraryItem,
+): boolean {
+  for (const row of items) {
+    if (row.category !== "staging") continue;
+    if (stagingGroupKeyFromLine(row) !== plantKey) continue;
+    const libId = stagingLibraryIdFromCatalogId(row.catalogId);
+    if (libId === preset.id) return true;
+    const auto = parseAutoStagingCatalogId(row.catalogId);
+    if (
+      auto &&
+      auto.plantKey === plantKey &&
+      typeof preset.sourceId === "number" &&
+      auto.sourceId === preset.sourceId
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function stagingPresetsAvailableForPlant(
+  items: ProposalItemInput[],
+  library: StagingLibraryItem[],
+  plantKey: string,
+): StagingLibraryItem[] {
+  return library.filter(
+    (preset) => !stagingPresetUsedOnPlant(items, plantKey, preset),
+  );
 }
 
 function newStagingLibraryId(): string {
@@ -467,13 +588,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   );
   const [stagingLibraryReady, setStagingLibraryReady] = useState(false);
   const [stagingLibraryModalOpen, setStagingLibraryModalOpen] = useState(false);
-  const [stagingQuickAddId, setStagingQuickAddId] = useState<string>("");
-  const [showNewClient, setShowNewClient] = useState(false);
-  const [newClientForm, setNewClientForm] = useState({
-    companyName: "",
-    contactName: "",
-    email: "",
-  });
+  const [stagingCatalogModalOpen, setStagingCatalogModalOpen] = useState(false);
+  /** Plant key (`plantKeyForStaging`) when picking a catalog preset to add under that plant. */
+  const [stagingPickPlantKey, setStagingPickPlantKey] = useState<string | null>(
+    null,
+  );
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const clientSelectRef = useRef<HTMLDivElement | null>(null);
 
   const [clientId, setClientId] = useState("");
   const [locationId, setLocationId] = useState("");
@@ -482,7 +603,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     ClientRequirementLine[]
   >(() => [emptyRequirementLine()]);
   const [markupMode, setMarkupMode] = useState<MarkupPricingMode>("open");
-  const [commissionDetailsEnabled, setCommissionDetailsEnabled] = useState(false);
+  const [commissionDetailsEnabled, setCommissionDetailsEnabled] =
+    useState(false);
   const [commissionBeneficiarySlots, setCommissionBeneficiarySlots] = useState<
     string[]
   >([]);
@@ -496,13 +618,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     useState<CommissionBeneficiary[]>([]);
   const [commissionBeneficiaryModalOpen, setCommissionBeneficiaryModalOpen] =
     useState(false);
-  const [photoSourceChoice, setPhotoSourceChoice] = useState<
-    "catalog" | "custom" | null
-  >(null);
   const autoSourceDoneRef = useRef(false);
 
   const [proposalId, setProposalId] = useState<string | null>(null);
-  const [proposalStatus, setProposalStatus] = useState<Proposal["status"]>("draft");
+  const [proposalStatus, setProposalStatus] =
+    useState<Proposal["status"]>("draft");
 
   const [engineConfig, setEngineConfig] = useState<PricingEngineConfig>(
     DEFAULT_PRICING_ENGINE_CONFIG,
@@ -517,9 +637,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   const [productTab, setProductTab] = useState<ItemCategory>("plant");
   const [draftItems, setDraftItems] = useState<ProposalItemInput[]>([]);
-  const plantPhotoInputRefs = useRef<Map<number, HTMLInputElement>>(
-    new Map(),
-  );
+  const plantPhotoInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
 
   const [rotations, setRotations] = useState<ProposalRotation[]>([]);
 
@@ -542,13 +660,18 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const [stagingImagePreview, setStagingImagePreview] = useState<string | null>(
     null,
   );
+  const [hiddenSuggestedKeys, setHiddenSuggestedKeys] = useState<
+    Record<string, true>
+  >({});
 
   const isProposalLocked = proposalStatus === "approved";
 
   function isProposalNotFoundError(e: unknown): boolean {
     if (typeof e === "object" && e !== null) {
-      const maybeStatus = (e as { status?: unknown; statusCode?: unknown }).status;
-      const maybeStatusCode = (e as { status?: unknown; statusCode?: unknown }).statusCode;
+      const maybeStatus = (e as { status?: unknown; statusCode?: unknown })
+        .status;
+      const maybeStatusCode = (e as { status?: unknown; statusCode?: unknown })
+        .statusCode;
       if (maybeStatus === 404 || maybeStatusCode === 404) return true;
     }
     return toErrorMessage(e).toLowerCase().includes("not found");
@@ -602,7 +725,15 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       );
       setDraftItems(proposalEntityItemsToDraft(p.items));
       if (p.requirementLines?.length) {
-        setRequirementLines(p.requirementLines.map((r) => ({ ...r })));
+        setRequirementLines(
+          p.requirementLines.map((r) => ({
+            ...r,
+            environment: r.environment === "outdoor" ? "outdoor" : "indoor",
+            clientHasPot: Boolean(r.clientHasPot),
+            plantingWithoutPot: Boolean(r.plantingWithoutPot),
+            guaranteed: Boolean(r.guaranteed),
+          })),
+        );
       } else {
         setRequirementLines([emptyRequirementLine()]);
       }
@@ -619,14 +750,26 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     () => clients.find((c) => c.id === clientId),
     [clients, clientId],
   );
+
+  /** Derived from CRM flag — no separate "client type" control. */
+  const clientKind = useMemo((): "new" | "old" | null => {
+    if (!clientId || !selectedClient) return null;
+    return selectedClient.isExistingCustomer ? "old" : "new";
+  }, [clientId, selectedClient]);
+
   const uniqueSelectedBeneficiaryIds = useMemo(
-    () => [...new Set(commissionBeneficiarySlots.map((s) => s.trim()).filter(Boolean))],
+    () => [
+      ...new Set(
+        commissionBeneficiarySlots.map((s) => s.trim()).filter(Boolean),
+      ),
+    ],
     [commissionBeneficiarySlots],
   );
   const reduceRequiredCount = beneficiaryReduceModal
     ? Math.max(
         0,
-        uniqueSelectedBeneficiaryIds.length - beneficiaryReduceModal.targetCount,
+        uniqueSelectedBeneficiaryIds.length -
+          beneficiaryReduceModal.targetCount,
       )
     : 0;
 
@@ -678,13 +821,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     let cancelled = false;
     const stepRaw = urlWizardStepRaw;
     const stepNum =
-      stepRaw != null &&
-      stepRaw !== "" &&
-      Number.isFinite(Number(stepRaw))
-        ? Math.max(
-            0,
-            Math.min(STEPS.length - 1, Math.floor(Number(stepRaw))),
-          )
+      stepRaw != null && stepRaw !== "" && Number.isFinite(Number(stepRaw))
+        ? Math.max(0, Math.min(STEPS.length - 1, Math.floor(Number(stepRaw))))
         : null;
     void hydrateProposalFromServer(urlProposalId)
       .then((p) => {
@@ -730,12 +868,20 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     const catalog = buildStagingLibraryFromJson();
+    const snap = (rows: StagingLibraryItem[]) =>
+      rows.map((row) => ({
+        ...row,
+        markup: snapMarkupToPricingLadder(
+          row.markup ?? DEFAULT_PRICING_ENGINE_CONFIG.defaultMarkup,
+          DEFAULT_PRICING_ENGINE_CONFIG,
+        ),
+      }));
     try {
       const raw = localStorage.getItem(STAGING_LIBRARY_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as StagingLibraryItem[];
         if (Array.isArray(parsed) && parsed.length) {
-          setStagingLibrary(parsed);
+          setStagingLibrary(snap(parsed));
         } else {
           setStagingLibrary(catalog);
         }
@@ -813,7 +959,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     setError(null);
     try {
       const rawIds = commissionDetailsEnabled
-        ? [...new Set(commissionBeneficiarySlots.map((s) => s.trim()).filter(Boolean))]
+        ? [
+            ...new Set(
+              commissionBeneficiarySlots.map((s) => s.trim()).filter(Boolean),
+            ),
+          ]
         : [];
       const firstRow = rawIds.length
         ? commissionBeneficiaryCatalog.find((b) => b.id === rawIds[0])
@@ -832,7 +982,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
             : 0,
           commissionBeneficiaryIds: commissionDetailsEnabled ? rawIds : [],
           commissionBeneficiaryId: commissionDetailsEnabled
-            ? rawIds[0] ?? null
+            ? (rawIds[0] ?? null)
             : null,
           commissionBeneficiaryName: commissionDetailsEnabled
             ? firstRow?.name.trim() || undefined
@@ -938,7 +1088,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       if (s.requirementLines !== undefined) {
         setRequirementLines(
           s.requirementLines.length
-            ? s.requirementLines.map((r) => ({ ...r }))
+            ? s.requirementLines.map((r) => ({
+                ...r,
+                guaranteed: Boolean(r.guaranteed),
+              }))
             : [emptyRequirementLine()],
         );
       }
@@ -1118,6 +1271,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   function neededQtyForPot(potId: string): number {
     const n = requirementLines
       .filter((l) => {
+        if (!requirementNeedsPotSelection(l)) return false;
         const m = findPotCatalogMatch(l.potType, potCatalog);
         return m?.id === potId;
       })
@@ -1127,6 +1281,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   function firstRequirementAreaForPot(potId: string): string | undefined {
     const line = requirementLines.find((l) => {
+      if (!requirementNeedsPotSelection(l)) return false;
       const m = findPotCatalogMatch(l.potType, potCatalog);
       return m?.id === potId;
     });
@@ -1200,13 +1355,22 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     setProductTab("staging");
   }
 
-  function appendStagingLineFromLibrary(preset: StagingLibraryItem) {
+  function appendStagingLineFromLibrary(
+    preset: StagingLibraryItem,
+    targetPlant: {
+      key: string;
+      name: string;
+      qty: number;
+      area?: string;
+    },
+  ) {
     const cheapest =
       preset.providers && preset.providers.length > 0
         ? preset.providers.reduce((a, b) => (a.price <= b.price ? a : b))
         : null;
     const wholesale = cheapest?.price ?? preset.wholesaleCost;
     const vendorName = cheapest?.name ?? "Staging supplier";
+    const vendorAddress = cheapest?.address ?? "Orlando, FL";
     const catalogId = `staging-lib-${preset.id}`;
     setDraftItems((prev) => [
       ...prev,
@@ -1214,25 +1378,31 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         category: "staging",
         catalogId,
         name: preset.label,
-        area: "",
-        qty: 1,
+        area: targetPlant.area,
+        qty: Math.max(1, targetPlant.qty),
         wholesaleCost: wholesale,
-        markup: preset.markup,
+        markup: snapMarkupToPricingLadder(preset.markup, engineConfig),
         freightRate: defaultFreight("staging", engineConfig),
         clientOwnsPot: false,
         requiresRotation: false,
+        relatedPlantItemId: targetPlant.key,
         vendorName,
-        vendorAddress: "",
+        vendorAddress,
         stagingImageUrl: preset.imageUrl,
       },
     ]);
   }
 
-  useEffect(() => {
-    if (!stagingLibrary.some((x) => x.id === stagingQuickAddId)) {
-      setStagingQuickAddId("");
-    }
-  }, [stagingLibrary, stagingQuickAddId]);
+  function addStagingPresetForPlant(
+    preset: StagingLibraryItem,
+    plantKey: string,
+  ) {
+    if (stagingPresetUsedOnPlant(draftItems, plantKey, preset)) return;
+    const targetPlant = allowedStagingTargets.find((t) => t.key === plantKey);
+    if (!targetPlant) return;
+    appendStagingLineFromLibrary(preset, targetPlant);
+    setStagingPickPlantKey(null);
+  }
 
   function neededQtyForPlant(plantId: string): number {
     const n = requirementLines
@@ -1269,21 +1439,25 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   function autoSourceAllFromRequirements() {
     const hasPlant = requirementLines.some((l) => l.plantCatalogId);
-    const hasPot = requirementLines.some(
-      (l) =>
-        l.potType.trim() &&
-        !/client-supplied|no pot po/i.test(l.potType.trim()),
-    );
-    if (!hasPlant && !hasPot) {
+    if (!hasPlant) {
       setError(
-        "Add at least one plant and/or pot line in Requirements to build products.",
+        "Add at least one plant line in Requirements to build products.",
       );
       return;
     }
     setError(null);
     const mk = resolveMarkupForSale(engineConfig, saleType, markupMode);
     setDraftItems((prev) => {
-      const next = [...prev];
+      const next = prev.filter((row) => row.category === "staging");
+      const existingPhotosByPlantKey = new Map<string, string[]>();
+      for (const row of prev) {
+        if (row.category !== "plant") continue;
+        if (!row.catalogId || (row.photos?.length ?? 0) === 0) continue;
+        const area = (row.area ?? "").trim().toLowerCase();
+        existingPhotosByPlantKey.set(`${row.catalogId}::${area}`, [
+          ...(row.photos ?? []),
+        ]);
+      }
       const addedPlants: ProposalItemInput[] = [];
       for (const line of requirementLines) {
         if (!line.plantCatalogId) continue;
@@ -1297,21 +1471,32 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         const base = plantItemFromCatalog(plant, grower, engineConfig, mk);
         base.qty = Math.max(1, line.qty);
         base.area = line.area.trim();
+        base.environment = line.environment;
+        base.plantingWithoutPot = line.plantingWithoutPot;
+        base.guaranteed = line.guaranteed;
+        if (line.clientHasPot || line.plantingWithoutPot) {
+          base.clientOwnsPot = true;
+        }
         const extras: string[] = [];
-        if (line.potType.trim()) extras.push(`Pot: ${line.potType.trim()}`);
+        if (line.clientHasPot) {
+          extras.push("Client already has pot");
+        } else if (line.plantingWithoutPot) {
+          extras.push("Planting without pot");
+        } else if (line.potType.trim()) {
+          extras.push(`Pot: ${line.potType.trim()}`);
+        }
         if (line.notes.trim()) extras.push(line.notes.trim());
         if (extras.length) {
           base.name = `${base.name} (${extras.join("; ")})`;
         }
+        const keepPhotos = existingPhotosByPlantKey.get(
+          `${line.plantCatalogId}::${line.area.trim().toLowerCase()}`,
+        );
+        if (keepPhotos?.length) {
+          base.photos = keepPhotos;
+        }
         next.push(base);
         addedPlants.push(base);
-      }
-      if (addedPlants.length > 0 && !addedPlants.some((p) => p.requiresRotation)) {
-        // Testing helper: if none of the selected plants rotate by default,
-        // force rotations on the first two so rotations can be validated quickly.
-        for (const plant of addedPlants.slice(0, 2)) {
-          plant.requiresRotation = true;
-        }
       }
       const potRows = autoSourcePotItemsFromRequirements(
         requirementLines,
@@ -1327,6 +1512,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const modalOverlayOpen =
     growerCatalogModalOpen ||
     potCatalogModalOpen ||
+    stagingCatalogModalOpen ||
+    Boolean(stagingPickPlantKey) ||
     stagingLibraryModalOpen ||
     commissionBeneficiaryModalOpen ||
     Boolean(beneficiaryReduceModal) ||
@@ -1348,6 +1535,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         setGrowerCatalogModalOpen(false);
         setPotCatalogModalOpen(false);
         setStagingLibraryModalOpen(false);
+        setStagingCatalogModalOpen(false);
+        setStagingPickPlantKey(null);
         setCommissionBeneficiaryModalOpen(false);
         setBeneficiaryReduceModal(null);
         setStagingImagePreview(null);
@@ -1518,6 +1707,47 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  async function replacePlantPhotosWithCatalog(
+    globalIndex: number,
+    imagePublicPath: string,
+  ) {
+    setError(null);
+    try {
+      const url =
+        typeof window !== "undefined"
+          ? new URL(imagePublicPath, window.location.origin).href
+          : imagePublicPath;
+      const res = await fetch(url);
+      if (!res.ok) {
+        setError(`Could not load catalog image (HTTP ${res.status}).`);
+        return;
+      }
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) {
+        setError("Catalog asset is not an image.");
+        return;
+      }
+      if (blob.size > 1_200_000) {
+        setError("Catalog image is too large to embed (max ~1.2 MB).");
+        return;
+      }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(new Error("read"));
+        r.readAsDataURL(blob);
+      });
+      setDraftItems((prev) =>
+        prev.map((row, i) => {
+          if (i !== globalIndex || row.category !== "plant") return row;
+          return { ...row, photos: [dataUrl] };
+        }),
+      );
+    } catch {
+      setError("Could not load catalog image.");
+    }
+  }
+
   function onImportRequirementsFile(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -1543,6 +1773,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     for (let i = 0; i < draftItems.length; i++) {
       const row = draftItems[i];
       if (row.category !== "plant") continue;
+      if (
+        selectedRequirementPlantIds.size > 0 &&
+        !selectedRequirementPlantIds.has(row.catalogId)
+      ) {
+        continue;
+      }
       if ((row.photos?.length ?? 0) > 0) continue;
       const picks = catalogEntriesForPhotoPicker(
         row.name,
@@ -1557,9 +1793,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   }
 
   const driveMinutesResolved = useMemo<number | null>(() => {
-    const overrideNum = driveMinutesOverride.trim() === ""
-      ? NaN
-      : Number(driveMinutesOverride);
+    const overrideNum =
+      driveMinutesOverride.trim() === "" ? NaN : Number(driveMinutesOverride);
     if (Number.isFinite(overrideNum) && overrideNum >= 0) return overrideNum;
     const loc = selectedClient?.locations.find((l) => l.id === locationId);
     if (typeof loc?.driveTimeMinutes === "number") return loc.driveTimeMinutes;
@@ -1580,6 +1815,15 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     engineConfig.simulatedMaxDriveMinutes,
   ]);
 
+  const driveDistanceResolved = useMemo<number | null>(() => {
+    const loc = selectedClient?.locations.find((l) => l.id === locationId);
+    if (typeof loc?.driveDistanceKm === "number") return loc.driveDistanceKm;
+    if (typeof selectedClient?.driveDistanceKm === "number") {
+      return selectedClient.driveDistanceKm;
+    }
+    return null;
+  }, [locationId, selectedClient]);
+
   const autoLaborPreview = useMemo(
     () =>
       computeAutoLaborLines({
@@ -1592,10 +1836,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 ? it.sizeInches
                 : parseSizeInchesFromText(it.name ?? ""),
             name: it.name,
-            accessDifficulty: it.accessDifficulty,
-            stairsFloors: it.stairsFloors,
-            extraDistanceMeters: it.extraDistanceMeters,
-            fragile: it.fragile,
           })),
         driveMinutesOneWay: driveMinutesResolved,
         config: engineConfig,
@@ -1645,6 +1885,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         totalInstallMinutes: autoLaborPreview.totalInstallMinutes,
         driveMinutesOneWay: autoLaborPreview.driveMinutesOneWay,
         bands: autoLaborPreview.bands,
+        fallbackDiameterCount: autoLaborPreview.fallbackDiameterCount,
       };
     }
     if (simplifiedLaborPreview) {
@@ -1658,17 +1899,18 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         totalInstallMinutes: s.totalInstallHours * 60,
         driveMinutesOneWay: s.driveMinutesOneWay,
         bands: [],
+        fallbackDiameterCount: s.fallbackDiameterCount,
       };
     }
     return {
       source: "none" as const,
       peakPeople: autoLaborPreview.peakPeople,
       clockMinutesPerPerson: autoLaborPreview.clockMinutesPerPerson,
-      targetClockMinutesPerPerson:
-        autoLaborPreview.targetClockMinutesPerPerson,
+      targetClockMinutesPerPerson: autoLaborPreview.targetClockMinutesPerPerson,
       totalInstallMinutes: autoLaborPreview.totalInstallMinutes,
       driveMinutesOneWay: autoLaborPreview.driveMinutesOneWay,
       bands: autoLaborPreview.bands,
+      fallbackDiameterCount: autoLaborPreview.fallbackDiameterCount,
     };
   }, [
     hasPlantProductsForLabor,
@@ -1685,7 +1927,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         prev.length !== next.length ||
         prev.some((p, i) => {
           const n = next[i];
-          return !n || p.key !== n.key || p.people !== n.people || p.hours !== n.hours;
+          return (
+            !n ||
+            p.key !== n.key ||
+            p.people !== n.people ||
+            p.hours !== n.hours
+          );
         });
       return changed ? next.map((l) => ({ ...l })) : prev;
     });
@@ -1709,52 +1956,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     patch: Partial<
       Pick<
         ProposalRotation,
-        | "frequencyName"
-        | "frequencyWeeks"
-        | "rotationUnitPrice"
-        | "truckFee"
+        "frequencyName" | "frequencyWeeks" | "rotationUnitPrice" | "truckFee"
       >
     >,
   ) {
     setRotations((prev) =>
       prev.map((r, i) => (i === index ? { ...r, ...patch } : r)),
     );
-  }
-
-  async function handleCreateClient() {
-    setError(null);
-    if (!newClientForm.companyName.trim() || !newClientForm.email.trim()) {
-      setError("Company name and email are required");
-      return;
-    }
-    setBusy(true);
-    try {
-      const c = await apiJson<Client>("/clients", {
-        method: "POST",
-        body: JSON.stringify({
-          companyName: newClientForm.companyName.trim(),
-          contactName: newClientForm.contactName.trim() || "Contact",
-          email: newClientForm.email.trim(),
-          locations: [{ name: "Main site", address: "" }],
-        }),
-      });
-      setClients((prev) => [...prev, c]);
-      setClientId(c.id);
-      const loc0 = c.locations[0];
-      if (loc0) setLocationId(loc0.id);
-      setShowNewClient(false);
-      setNewClientForm({ companyName: "", contactName: "", email: "" });
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : toErrorMessage(e) === "Something went wrong"
-            ? "Could not create client"
-            : toErrorMessage(e),
-      );
-    } finally {
-      setBusy(false);
-    }
   }
 
   const plantRows = useMemo(
@@ -1779,29 +1987,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     [draftItems],
   );
 
-  const selectedStagingLibraryIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const it of draftItems) {
-      if (it.category !== "staging") continue;
-      const lid = stagingLibraryIdFromCatalogId(it.catalogId);
-      if (lid) ids.add(lid);
-    }
-    return ids;
-  }, [draftItems]);
-
-  const availableStagingCatalogRows = useMemo(
-    () =>
-      stagingLibrary.filter((row) => !selectedStagingLibraryIds.has(row.id)),
-    [stagingLibrary, selectedStagingLibraryIds],
-  );
-
   const stagingPicksForStrip = useMemo(() => {
     return stagingRows
       .map(({ it, i }) => {
         const lid = stagingLibraryIdFromCatalogId(it.catalogId);
-        const lib = lid
-          ? stagingLibrary.find((x) => x.id === lid)
-          : undefined;
+        const lib = lid ? stagingLibrary.find((x) => x.id === lid) : undefined;
         const imageUrl = it.stagingImageUrl ?? lib?.imageUrl;
         return {
           key: `${it.catalogId}-${i}`,
@@ -1815,8 +2005,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   /** Staging lines ordered by plant section (auto + manual bucket). */
   const stagingRowsOrdered = useMemo(
-    () =>
-      buildStagingDisplayGroups(draftItems).flatMap((g) => g.rows),
+    () => buildStagingDisplayGroups(draftItems).flatMap((g) => g.rows),
     [draftItems],
   );
 
@@ -1844,7 +2033,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (!stagingLibraryReady) return;
     setDraftItems((prev) => {
-      const next = mergeAutoStagingIntoDraft(prev, engineConfig, stagingLibrary);
+      const next = mergeAutoStagingIntoDraft(
+        prev,
+        engineConfig,
+        stagingLibrary,
+      );
       if (serializeAutoStagingSlice(prev) === serializeAutoStagingSlice(next)) {
         return prev;
       }
@@ -1857,15 +2050,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     stagingLibrary,
     engineConfig,
   ]);
-
-  useEffect(() => {
-    if (
-      stagingQuickAddId &&
-      selectedStagingLibraryIds.has(stagingQuickAddId)
-    ) {
-      setStagingQuickAddId("");
-    }
-  }, [stagingQuickAddId, selectedStagingLibraryIds]);
 
   const tabRows =
     productTab === "plant"
@@ -1896,16 +2080,128 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     [rotations, engineConfig],
   );
 
+  const selectedRequirementPlantIds = useMemo(
+    () =>
+      new Set(
+        requirementLines.map((l) => l.plantCatalogId.trim()).filter(Boolean),
+      ),
+    [requirementLines],
+  );
+
+  useEffect(() => {
+    const guaranteedKeys = new Set(
+      requirementLines
+        .filter((l) => l.plantCatalogId && l.guaranteed)
+        .map(
+          (l) => `${l.plantCatalogId.trim()}::${l.area.trim().toLowerCase()}`,
+        ),
+    );
+    setDraftItems((prev) => {
+      let changed = false;
+      const next = prev.map((it) => {
+        if (it.category !== "plant") return it;
+        const key = `${it.catalogId.trim()}::${(it.area ?? "").trim().toLowerCase()}`;
+        const guaranteed = guaranteedKeys.has(key);
+        if ((it.guaranteed ?? false) === guaranteed) return it;
+        changed = true;
+        return { ...it, guaranteed };
+      });
+      return changed ? next : prev;
+    });
+  }, [requirementLines]);
+
+  const allowedStagingTargets = useMemo(() => {
+    const seen = new Set<string>();
+    return plantRows
+      .map(({ it, i }) => {
+        const key = plantKeyForStaging(it, i);
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return {
+          key,
+          name: it.name,
+          area: it.area?.trim() || "",
+          qty: Math.max(1, it.qty || 1),
+          source: selectedRequirementPlantIds.has(it.catalogId)
+            ? "requirements"
+            : "manual",
+        } as const;
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+  }, [plantRows, selectedRequirementPlantIds]);
+
+  const stagingPickOptions = useMemo(() => {
+    if (!stagingPickPlantKey) return [];
+    return stagingPresetsAvailableForPlant(
+      draftItems,
+      stagingLibrary,
+      stagingPickPlantKey,
+    );
+  }, [stagingPickPlantKey, draftItems, stagingLibrary]);
+
   const photoTargets = useMemo(
     () =>
-      plantRows.map(({ it, i }) => ({
-        key: it.id ?? `draft-${i}`,
-        globalIndex: i,
-        name: it.name,
-        qty: it.qty,
-      })),
-    [plantRows],
+      plantRows
+        .filter(
+          ({ it }) =>
+            selectedRequirementPlantIds.size === 0 ||
+            selectedRequirementPlantIds.has(it.catalogId),
+        )
+        .map(({ it, i }) => ({
+          key: it.id ?? `draft-${i}`,
+          globalIndex: i,
+          name: it.name,
+          qty: it.qty,
+        })),
+    [plantRows, selectedRequirementPlantIds],
   );
+
+  const photoTargetsWithSuggested = useMemo(
+    () =>
+      photoTargets.map((row) => {
+        const catalogPickerRows = catalogEntriesForPhotoPicker(
+          row.name || "plant",
+          "",
+          plantReferenceCatalog.plants,
+        );
+        const suggested = catalogPickerRows[0] ?? null;
+        const urls =
+          draftItems[row.globalIndex]?.category === "plant"
+            ? (draftItems[row.globalIndex].photos ?? [])
+            : [];
+        return { row, urls, suggested };
+      }),
+    [photoTargets, draftItems],
+  );
+
+  const visiblePhotoTargets = useMemo(
+    () =>
+      photoTargetsWithSuggested.filter(
+        ({ urls, suggested }) =>
+          urls.length > 0 || Boolean(suggested?.imagePublicPath),
+      ),
+    [photoTargetsWithSuggested],
+  );
+
+  const missingImagePhotoTargets = useMemo(
+    () =>
+      photoTargetsWithSuggested.filter(
+        ({ urls, suggested }) =>
+          urls.length === 0 && !suggested?.imagePublicPath,
+      ),
+    [photoTargetsWithSuggested],
+  );
+
+  useEffect(() => {
+    const allowed = new Set(visiblePhotoTargets.map(({ row }) => row.key));
+    setHiddenSuggestedKeys((prev) => {
+      const next: Record<string, true> = {};
+      for (const key of Object.keys(prev)) {
+        if (allowed.has(key)) next[key] = true;
+      }
+      return next;
+    });
+  }, [visiblePhotoTargets]);
 
   const totalPhotos = useMemo(
     () =>
@@ -1926,13 +2222,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   }, [summary, totalPhotos]);
 
   const requirementsStepOk = useMemo(
-    () =>
-      requirementLines.some(
-        (l) =>
-          Boolean(l.plantCatalogId) ||
-          (l.potType.trim() &&
-            !/client-supplied|no pot po/i.test(l.potType.trim())),
-      ),
+    () => requirementLines.some((l) => Boolean(l.plantCatalogId)),
     [requirementLines],
   );
 
@@ -1944,22 +2234,56 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     [requirementLines],
   );
 
+  const totalPlantUnitsForTruckFee = useMemo(() => {
+    const fromProducts = draftItems
+      .filter((it) => it.category === "plant")
+      .reduce((sum, it) => sum + Math.max(0, Number(it.qty) || 0), 0);
+    return fromProducts > 0 ? fromProducts : totalPlantUnitsFromRequirements;
+  }, [draftItems, totalPlantUnitsFromRequirements]);
+
+  const computedTruckFee = useMemo(
+    () => truckFeeForPlantCount(totalPlantUnitsForTruckFee, engineConfig),
+    [totalPlantUnitsForTruckFee, engineConfig],
+  );
+
   useEffect(() => {
-    if (!selectedClient?.isExistingCustomer) return;
-    setSaleType((st) => (st === "new_installation" ? "new_sale" : st));
-  }, [clientId, selectedClient?.isExistingCustomer]);
+    setRotations((prev) =>
+      prev.map((r) =>
+        r.truckFee === computedTruckFee
+          ? r
+          : { ...r, truckFee: computedTruckFee },
+      ),
+    );
+  }, [computedTruckFee]);
+
+  useEffect(() => {
+    if (!clientKind) return;
+    setSaleType((st) => {
+      if (clientKind === "old" && st === "new_installation") {
+        return "new_sale";
+      }
+      if (clientKind === "new" && st === "new_sale") {
+        return "new_installation";
+      }
+      return st;
+    });
+  }, [clientKind]);
+
+  useEffect(() => {
+    if (!clientPickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = clientSelectRef.current;
+      if (el && !el.contains(e.target as Node)) setClientPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [clientPickerOpen]);
 
   useEffect(() => {
     if (step !== 2) return;
     if (autoSourceDoneRef.current) return;
     if (draftItems.length > 0) return;
-    const can =
-      requirementLines.some((l) => l.plantCatalogId) ||
-      requirementLines.some(
-        (l) =>
-          l.potType.trim() &&
-          !/client-supplied|no pot po/i.test(l.potType.trim()),
-      );
+    const can = requirementLines.some((l) => l.plantCatalogId);
     if (!can) return;
     autoSourceDoneRef.current = true;
     autoSourceAllFromRequirements();
@@ -1981,15 +2305,18 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     { value: "replacement", title: "Replacement", subtitle: "QB: 701" },
   ];
 
-  const visibleSaleCards = selectedClient?.isExistingCustomer
-    ? saleCards.filter((c) => c.value !== "new_installation")
-    : saleCards;
+  const visibleSaleCards =
+    clientKind === "old"
+      ? saleCards.filter((c) => c.value !== "new_installation")
+      : clientKind === "new"
+        ? saleCards.filter((c) => c.value !== "new_sale")
+        : saleCards;
 
   const nextDisabled =
     busy ||
     isProposalLocked ||
     (step === 0 && !requirementsStepOk) ||
-    (step === 1 && (!clientId || !locationId)) ||
+    (step === 1 && (!clientId || !locationId || !clientKind)) ||
     (step === 5 && !summary) ||
     (step === 2 && draftItems.length === 0);
 
@@ -2088,9 +2415,16 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   Client requirements
                 </h2>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  One row per plant line / area. Feeds auto-sourcing on Products.
-                  Import CSV (Excel → Save as CSV) using the template columns.
+                  One row per plant line / area. Feeds auto-sourcing on
+                  Products. Import CSV (Excel → Save as CSV) using the template
+                  columns.
                 </p>
+                {clientKind === "new" ? (
+                  <p className="mt-2 inline-flex rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
+                    New requirement active: current rows are preserved and not
+                    replaced.
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <a
@@ -2118,97 +2452,191 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     key={line.id}
                     className="rounded-xl border border-gray-200 bg-white/90 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-950/80"
                   >
-                    <div className="grid gap-3 sm:grid-cols-12 sm:items-end">
-                      <div className="sm:col-span-3">
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          Plant
-                        </label>
-                        <PlantPicker
-                          plants={catalog}
-                          value={line.plantCatalogId}
-                          onChange={(id) =>
-                            updateRequirementLine(line.id, {
-                              plantCatalogId: id,
-                            })
-                          }
-                          placeholder="Search plant by name…"
-                        />
+                    <div className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-14 md:items-end">
+                        <div className="md:col-span-4">
+                          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Plant
+                          </label>
+                          <PlantPicker
+                            plants={catalog}
+                            value={line.plantCatalogId}
+                            onChange={(id) =>
+                              updateRequirementLine(line.id, {
+                                plantCatalogId: id,
+                              })
+                            }
+                            placeholder="Search plant by name…"
+                          />
+                        </div>
+                        <div className="md:col-span-4">
+                          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Pot type
+                          </label>
+                          {requirementNeedsPotSelection(line) ? (
+                            <PotPicker
+                              pots={potCatalog}
+                              value={line.potType}
+                              plantSizeInches={
+                                catalog.find(
+                                  (p) => p.id === line.plantCatalogId,
+                                )?.sizeInches ?? null
+                              }
+                              placeholder="Search pot by name/family…"
+                              onChange={(potName) =>
+                                updateRequirementLine(line.id, {
+                                  potType: potName,
+                                })
+                              }
+                            />
+                          ) : (
+                            <input
+                              className="w-full rounded-lg border border-gray-200 bg-gray-100 px-2 py-2 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
+                              value="Blocked by selected pot mode"
+                              readOnly
+                            />
+                          )}
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Location / area
+                          </label>
+                          <input
+                            className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                            placeholder="e.g. Lobby"
+                            value={line.area}
+                            onChange={(e) =>
+                              updateRequirementLine(line.id, {
+                                area: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="md:col-span-1">
+                          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Qty
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                            value={line.qty}
+                            onChange={(e) =>
+                              updateRequirementLine(line.id, {
+                                qty: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Environment <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                            value={line.environment}
+                            onChange={(e) =>
+                              updateRequirementLine(line.id, {
+                                environment:
+                                  e.target.value === "outdoor"
+                                    ? "outdoor"
+                                    : "indoor",
+                              })
+                            }
+                          >
+                            <option value="indoor">Indoor</option>
+                            <option value="outdoor">Outdoor</option>
+                          </select>
+                        </div>
+                        <div className="md:col-span-2">
+                          <p className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Guaranteed
+                          </p>
+                          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-200">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300"
+                              checked={line.guaranteed}
+                              onChange={(e) =>
+                                updateRequirementLine(line.id, {
+                                  guaranteed: e.target.checked,
+                                })
+                              }
+                            />
+                            Guaranteed plant
+                          </label>
+                        </div>
+                        <div className="flex justify-end md:col-span-1">
+                          <button
+                            type="button"
+                            onClick={() => removeRequirementLine(line.id)}
+                            className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                            aria-label="Remove line"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="sm:col-span-2">
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          Location / area
-                        </label>
-                        <input
-                          className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                          placeholder="e.g. Lobby"
-                          value={line.area}
-                          onChange={(e) =>
-                            updateRequirementLine(line.id, {
-                              area: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="sm:col-span-1">
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          Qty
-                        </label>
-                        <input
-                          type="number"
-                          min={1}
-                          className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                          value={line.qty}
-                          onChange={(e) =>
-                            updateRequirementLine(line.id, {
-                              qty: Math.max(1, Number(e.target.value) || 1),
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          Pot type
-                        </label>
-                        <PotPicker
-                          pots={potCatalog}
-                          value={line.potType}
-                          plantSizeInches={
-                            catalog.find(
-                              (p) => p.id === line.plantCatalogId,
-                            )?.sizeInches ?? null
-                          }
-                          extraOptions={["Client-supplied (no pot PO)"]}
-                          placeholder="Search pot by name/family…"
-                          onChange={(potName) =>
-                            updateRequirementLine(line.id, {
-                              potType: potName,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          Notes
-                        </label>
-                        <input
-                          className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                          value={line.notes}
-                          onChange={(e) =>
-                            updateRequirementLine(line.id, {
-                              notes: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="flex justify-end sm:col-span-1">
-                        <button
-                          type="button"
-                          onClick={() => removeRequirementLine(line.id)}
-                          className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                          aria-label="Remove line"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      <div className="grid gap-3 md:grid-cols-12 md:items-end">
+                        <div className="md:col-span-8">
+                          <p className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Pot mode <span className="text-red-500">*</span>
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-200">
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-300"
+                                checked={line.clientHasPot}
+                                onChange={(e) =>
+                                  updateRequirementLine(line.id, {
+                                    clientHasPot: e.target.checked,
+                                    plantingWithoutPot: e.target.checked
+                                      ? false
+                                      : line.plantingWithoutPot,
+                                    potType: e.target.checked
+                                      ? ""
+                                      : line.potType,
+                                  })
+                                }
+                              />
+                              Client already has this pot
+                            </label>
+                            <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-200">
+                              <input
+                                type="checkbox"
+                                className="rounded border-gray-300"
+                                checked={line.plantingWithoutPot}
+                                onChange={(e) =>
+                                  updateRequirementLine(line.id, {
+                                    clientHasPot: e.target.checked
+                                      ? false
+                                      : line.clientHasPot,
+                                    plantingWithoutPot: e.target.checked,
+                                    potType: e.target.checked
+                                      ? ""
+                                      : line.potType,
+                                  })
+                                }
+                              />
+                              Planting without pot
+                            </label>
+                          </div>
+                        </div>
+                        <div className="md:col-span-4">
+                          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            Notes
+                          </label>
+                          <input
+                            className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                            value={line.notes}
+                            onChange={(e) =>
+                              updateRequirementLine(line.id, {
+                                notes: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2220,7 +2648,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-100/80 py-3 text-sm font-semibold text-gray-700 transition hover:border-[#2b7041]/40 hover:bg-emerald-50/50 dark:border-gray-600 dark:bg-gray-800/60 dark:text-gray-200"
               >
                 <Plus className="h-4 w-4" />
-                Add requirement line
+                Add Item
               </button>
             </div>
           ) : step === 1 ? (
@@ -2245,8 +2673,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     Proposal pricing &amp; calculation defaults
                   </p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-600 dark:text-gray-400">
-                    Opens in this same view with sections grouped by topic.
-                    Use <strong>Save and return to General</strong> when done, or{" "}
+                    Opens in this same view with sections grouped by topic. Use{" "}
+                    <strong>Save and return to General</strong> when done, or{" "}
                     <strong>Back to General</strong> to leave without saving.
                   </p>
                 </div>
@@ -2261,80 +2689,76 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               <div className="grid gap-5 md:grid-cols-2">
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Client
-                    </label>
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Client <span className="text-red-500">*</span>
+                  </label>
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                    Open the list to see each account:{" "}
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                      New client
+                    </span>{" "}
+                    (green) vs{" "}
+                    <span className="font-semibold text-gray-600 dark:text-gray-400">
+                      Existing
+                    </span>
+                    . Sale-type rules follow automatically.
+                  </p>
+                  <div ref={clientSelectRef} className="relative">
                     <button
                       type="button"
-                      onClick={() => setShowNewClient((v) => !v)}
-                      className="text-xs font-semibold text-[#2b7041] hover:underline dark:text-emerald-400"
+                      aria-expanded={clientPickerOpen}
+                      aria-haspopup="listbox"
+                      onClick={() => setClientPickerOpen((o) => !o)}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left text-sm outline-none ring-[#2b7041]/30 focus:ring-2 dark:border-gray-700 dark:bg-gray-950"
                     >
-                      + New
+                      <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">
+                        {selectedClient?.companyName ?? "Select client…"}
+                      </span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
                     </button>
-                  </div>
-                  <select
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none ring-[#2b7041]/30 focus:ring-2 dark:border-gray-700 dark:bg-gray-950"
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                  >
-                    <option value="">Select client…</option>
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.companyName}
-                      </option>
-                    ))}
-                  </select>
-                  {showNewClient ? (
-                    <div className="mt-3 space-y-2 rounded-xl border border-gray-200 p-3 dark:border-gray-700">
-                      <input
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                        placeholder="Company name"
-                        value={newClientForm.companyName}
-                        onChange={(e) =>
-                          setNewClientForm((f) => ({
-                            ...f,
-                            companyName: e.target.value,
-                          }))
-                        }
-                      />
-                      <input
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                        placeholder="Contact name"
-                        value={newClientForm.contactName}
-                        onChange={(e) =>
-                          setNewClientForm((f) => ({
-                            ...f,
-                            contactName: e.target.value,
-                          }))
-                        }
-                      />
-                      <input
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                        placeholder="Email"
-                        type="email"
-                        value={newClientForm.email}
-                        onChange={(e) =>
-                          setNewClientForm((f) => ({
-                            ...f,
-                            email: e.target.value,
-                          }))
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleCreateClient().catch((e: unknown) =>
-                            setError(toErrorMessage(e)),
-                          )
-                        }
-                        className={`w-full rounded-lg px-3 py-2 text-sm font-semibold text-white ${PRIMARY_CLASS}`}
+                    {clientPickerOpen ? (
+                      <ul
+                        className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+                        role="listbox"
                       >
-                        Save client
-                      </button>
-                    </div>
-                  ) : null}
+                        {clients.map((c) => {
+                          const isNewClient = !c.isExistingCustomer;
+                          return (
+                            <li key={c.id} role="none">
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={c.id === clientId}
+                                onClick={() => {
+                                  setClientId(c.id);
+                                  setClientPickerOpen(false);
+                                }}
+                                className={`flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition hover:bg-emerald-50/80 dark:hover:bg-emerald-950/30 ${
+                                  c.id === clientId
+                                    ? "bg-emerald-50/90 dark:bg-emerald-950/40"
+                                    : ""
+                                }`}
+                              >
+                                <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">
+                                  {c.companyName}
+                                </span>
+                                {isNewClient ? (
+                                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-200">
+                                    New client
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                    Existing
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div>
@@ -2379,11 +2803,32 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              {clientId ? (
+              {clientId && clientKind ? (
                 <div className="rounded-lg border border-amber-200/80 bg-amber-50/60 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
-                  {selectedClient?.isExistingCustomer
+                  {clientKind === "old"
                     ? "Existing customer (QuickBooks / history): only Additional sale and Replacement apply."
-                    : "New customer: New Installation is available."}
+                    : "New client: only New Installation and Replacement apply."}
+                </div>
+              ) : null}
+
+              {clientKind === "old" ? (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 text-sm dark:border-indigo-900/50 dark:bg-indigo-950/30">
+                  <p className="font-semibold text-indigo-900 dark:text-indigo-200">
+                    Purchase history
+                  </p>
+                  {selectedClient?.isExistingCustomer ? (
+                    <ul className="mt-2 space-y-1 text-xs text-indigo-900/90 dark:text-indigo-200/90">
+                      <li>Client marked as existing (QuickBooks / history).</li>
+                      <li>
+                        Registered locations:{" "}
+                        <strong>{selectedClient.locations.length}</strong>.
+                      </li>
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-indigo-900/90 dark:text-indigo-200/90">
+                      No purchase history available for this client.
+                    </p>
+                  )}
                 </div>
               ) : null}
 
@@ -2482,12 +2927,14 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     </p>
                   </div>
                   <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
-                    Auto-calculated. Configure rules in Open pricing configuration.
+                    Auto-calculated. Configure rules in Open pricing
+                    configuration.
                   </span>
                 </div>
                 <div className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
                   <div>
-                    Auto crew: <strong>{displayLaborPreview.peakPeople} person(s)</strong>
+                    Auto crew:{" "}
+                    <strong>{displayLaborPreview.peakPeople} person(s)</strong>
                     {" × "}
                     <strong>
                       {displayLaborPreview.clockMinutesPerPerson.toFixed(0)} min
@@ -2504,15 +2951,29 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       {displayLaborPreview.driveMinutesOneWay.toFixed(0)} min
                     </strong>
                     {" one-way"}
+                    {driveDistanceResolved != null ? (
+                      <>
+                        {" · Distance "}
+                        <strong>{driveDistanceResolved.toFixed(1)} km</strong>
+                      </>
+                    ) : null}
                   </div>
                   {displayLaborPreview.source === "requirements" ? (
                     <p className="mt-2 border-t border-emerald-200/80 pt-2 text-[11px] text-emerald-800 dark:border-emerald-800 dark:text-emerald-200">
-                      Using the simplified hours-per-plant table from requirements
-                      until product lines exist; load / unload / install / cleanup
-                      costs below follow this estimate.
+                      Requirements preview uses conservative CPP fallback (
+                      {engineConfig.laborAuto.missingDiameterFallbackCpp}) for
+                      all plants until product lines provide item diameters.
                     </p>
                   ) : null}
                 </div>
+                {displayLaborPreview.fallbackDiameterCount > 0 ? (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                    {displayLaborPreview.fallbackDiameterCount} plant unit(s)
+                    are using fallback CPP=
+                    {engineConfig.laborAuto.missingDiameterFallbackCpp} because
+                    diameter was not available.
+                  </div>
+                ) : null}
                 {displayLaborPreview.bands.length > 0 ? (
                   <div className="mb-3 flex flex-wrap gap-2 text-xs">
                     {displayLaborPreview.bands.map((b) => (
@@ -2531,15 +2992,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 ) : displayLaborPreview.source === "requirements" &&
                   simplifiedLaborPreview ? (
                   <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
-                    Simplified table row:{" "}
-                    <strong>
-                      {simplifiedLaborPreview.row.hoursPerPlant} h × plant
-                    </strong>
-                    {" · "}
                     <strong>
                       {simplifiedLaborPreview.totalInstallHours.toFixed(2)} h
                     </strong>
-                    {" total install workload (reference)."}
+                    {" total install workload (CPP fallback estimate)."}
                   </div>
                 ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -2624,7 +3080,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           </span>
                           <button
                             type="button"
-                            onClick={() => setCommissionBeneficiaryModalOpen(true)}
+                            onClick={() =>
+                              setCommissionBeneficiaryModalOpen(true)
+                            }
                             title="Add a new beneficiary to the catalog"
                             className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2b7041] bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2b7041] shadow-sm hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
                           >
@@ -2643,8 +3101,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                               (b) =>
                                 b.id === slotId.trim() ||
                                 !commissionBeneficiarySlots.some(
-                                  (s, j) =>
-                                    j !== slotIdx && s.trim() === b.id,
+                                  (s, j) => j !== slotIdx && s.trim() === b.id,
                                 ),
                             );
                             const row = slotId.trim()
@@ -2677,15 +3134,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
                                   value={slotId.trim()}
                                   onChange={(e) =>
-                                    setCommissionSlot(
-                                      slotIdx,
-                                      e.target.value,
-                                    )
+                                    setCommissionSlot(slotIdx, e.target.value)
                                   }
                                 >
-                                  <option value="">
-                                    Select beneficiary…
-                                  </option>
+                                  <option value="">Select beneficiary…</option>
                                   {options.map((b) => (
                                     <option key={b.id} value={b.id}>
                                       {b.name}
@@ -2752,9 +3204,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   Internal purchasing workflow
                 </p>
                 <p className="mt-1 text-xs leading-snug text-gray-500 dark:text-gray-400">
-                  The generated proposal is client-facing. After the client approves
-                  it, operations can generate two internal purchase orders: one for
-                  plants and a second one for pots and staging materials.
+                  The generated proposal is client-facing. After the client
+                  approves it, operations can generate two internal purchase
+                  orders: one for plants and a second one for pots and staging
+                  materials.
                 </p>
               </div>
             </div>
@@ -2763,7 +3216,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
           {/* —— Step 1 Products —— */}
           {step === 2 ? (
             <div className="space-y-6">
-              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+              <div className="space-y-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white">
                     <Leaf
@@ -2779,7 +3232,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     defined with operations.
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex min-w-0 flex-nowrap justify-end gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {productTab === "plant" ? (
                     <>
                       <button
@@ -2789,7 +3242,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           setGrowerCatalogSearch("");
                           setGrowerCatalogModalOpen(true);
                         }}
-                        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
                       >
                         <Store className="h-4 w-4" />
                         Growers
@@ -2798,18 +3251,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         type="button"
                         onClick={() => autoSourceAllFromRequirements()}
                         disabled={
-                          (!requirementLines.some((l) => l.plantCatalogId) &&
-                            !requirementLines.some(
-                              (l) =>
-                                l.potType.trim() &&
-                                !/client-supplied|no pot po/i.test(
-                                  l.potType.trim(),
-                                ),
-                            )) ||
+                          !requirementLines.some((l) => l.plantCatalogId) ||
                           busy
                         }
-                        title="Rebuild plant & pot lines from Requirements (best vendor per line)"
-                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100/90 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-950/70"
+                        title="Rebuild plant lines from Requirements (best vendor per line)"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100/90 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-950/70"
                       >
                         <Sparkles className="h-4 w-4" />
                         Sync from requirements
@@ -2824,7 +3270,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           setPotCatalogSearch("");
                           setPotCatalogModalOpen(true);
                         }}
-                        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
                       >
                         <Store className="h-4 w-4" />
                         Suppliers
@@ -2833,18 +3279,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         type="button"
                         onClick={() => autoSourceAllFromRequirements()}
                         disabled={
-                          (!requirementLines.some((l) => l.plantCatalogId) &&
-                            !requirementLines.some(
-                              (l) =>
-                                l.potType.trim() &&
-                                !/client-supplied|no pot po/i.test(
-                                  l.potType.trim(),
-                                ),
-                            )) ||
+                          !requirementLines.some((l) => l.plantCatalogId) ||
                           busy
                         }
-                        title="Rebuild plant & pot lines from Requirements"
-                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100/90 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-950/70"
+                        title="Rebuild plant lines from Requirements"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100/90 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-950/70"
                       >
                         <Sparkles className="h-4 w-4" />
                         Sync from requirements
@@ -2856,15 +3295,23 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         type="button"
                         onClick={() => refreshAutoStagingNow()}
                         title="Staging already recalculates when plants change; this button forces a refresh and opens the tab."
-                        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
                       >
                         <Sparkles className="h-4 w-4" />
                         Refresh staging
                       </button>
                       <button
                         type="button"
+                        onClick={() => setStagingCatalogModalOpen(true)}
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100/90 dark:border-violet-900/50 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/70"
+                      >
+                        <Layers className="h-4 w-4" />
+                        Browse catalog
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setStagingLibraryModalOpen(true)}
-                        className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100/90 dark:border-violet-900/50 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/70"
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:bg-violet-100/90 dark:border-violet-900/50 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/70"
                       >
                         <Layers className="h-4 w-4" />
                         Staging library
@@ -2945,10 +3392,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 <div className="space-y-4">
                   <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/50 px-3 py-2 text-xs text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
                     <strong>Staging per plant (automatic):</strong> it
-                    recalculates when you add or change plants, quantities, inches,
-                    or Indoor/Outdoor. Each plant has its own block below with the
-                    material image. You can also add materials manually from the
-                    catalog.
+                    recalculates when you add or change plants, quantities,
+                    inches, or Indoor/Outdoor. Use <strong>Add staging</strong>{" "}
+                    on each plant to attach catalog materials (only items not
+                    already on that plant).
+                    <strong> Browse catalog</strong> shows the full library for
+                    reference only.
                   </div>
                   {stagingPicksForStrip.length > 0 ? (
                     <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/25">
@@ -2956,9 +3405,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         In this proposal
                       </p>
                       <p className="mb-3 text-xs text-gray-600 dark:text-gray-400">
-                        Selected items leave the catalog below. Click a thumbnail
-                        to enlarge; use the line editor to remove (returns item to
-                        catalog).
+                        Selected items leave the catalog below. Click a
+                        thumbnail to enlarge; use the line editor to remove
+                        (returns item to catalog).
                       </p>
                       <div className="flex flex-wrap gap-3">
                         {stagingPicksForStrip.map((pick) => (
@@ -2989,118 +3438,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     </div>
                   ) : null}
 
-                  <div className="rounded-xl border border-violet-200/80 bg-violet-50/40 p-4 dark:border-violet-900/40 dark:bg-violet-950/25">
-                    <div className="mb-3 flex items-start gap-2">
-                      <Layers className="mt-0.5 h-5 w-5 shrink-0 text-violet-700 dark:text-violet-300" />
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                          Staging catalog
-                        </p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          Each card can be added once. It disappears here and
-                          appears above under{" "}
-                          <span className="font-medium">In this proposal</span>.
-                          Wholesale = lowest provider price.
-                        </p>
-                      </div>
-                    </div>
-                    {availableStagingCatalogRows.filter((row) => row.imageUrl)
-                      .length === 0 ? (
-                      <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                        {stagingLibrary.filter((r) => r.imageUrl).length === 0
-                          ? "No images in the library. Use Manage library to add presets."
-                          : "All catalog items with photos are already in the proposal — remove a line below to pick it again."}
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                        {availableStagingCatalogRows
-                          .filter((row) => row.imageUrl)
-                          .map((row) => (
-                            <button
-                              key={row.id}
-                              type="button"
-                              onClick={() => appendStagingLineFromLibrary(row)}
-                              className="group flex flex-col overflow-hidden rounded-xl border border-violet-200/90 bg-white text-left shadow-sm transition hover:border-[#2b7041]/50 hover:shadow-md dark:border-violet-800 dark:bg-gray-950"
-                            >
-                              <div className="relative aspect-square w-full bg-gray-100 dark:bg-gray-900">
-                                <Image
-                                  src={row.imageUrl!}
-                                  alt={row.label}
-                                  fill
-                                  className="object-contain p-2"
-                                  sizes="(max-width: 768px) 50vw, 25vw"
-                                  unoptimized
-                                />
-                              </div>
-                              <div className="border-t border-violet-100 p-2 dark:border-violet-900/50">
-                                <p className="line-clamp-2 text-[11px] font-semibold leading-tight text-gray-900 dark:text-white">
-                                  {row.label}
-                                </p>
-                                <p className="mt-1 text-[10px] font-medium tabular-nums text-[#2b7041] dark:text-emerald-400">
-                                  from {money.format(row.wholesaleCost)}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-violet-200/80 bg-violet-50/40 p-4 dark:border-violet-900/40 dark:bg-violet-950/25">
-                    <div className="mb-3 flex items-start gap-2">
-                      <Layers className="mt-0.5 h-5 w-5 shrink-0 text-violet-700 dark:text-violet-300" />
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                          Add without image (saved presets)
-                        </p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          Only presets not yet added are listed. Edit presets in{" "}
-                          <span className="font-medium">Staging library</span>.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div className="min-w-[min(100%,220px)] flex-1">
-                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-violet-800/80 dark:text-violet-300/90">
-                          Saved staging
-                        </label>
-                        <select
-                          className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                          value={stagingQuickAddId}
-                          onChange={(e) => setStagingQuickAddId(e.target.value)}
-                          aria-label="Select saved staging preset"
-                        >
-                          <option value="">Select…</option>
-                          {availableStagingCatalogRows.map((row) => (
-                            <option key={row.id} value={row.id}>
-                              {row.label} — {money.format(row.wholesaleCost)} · ×
-                              {row.markup}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={!stagingQuickAddId}
-                        onClick={() => {
-                          const row = stagingLibrary.find(
-                            (x) => x.id === stagingQuickAddId,
-                          );
-                          if (row) appendStagingLineFromLibrary(row);
-                        }}
-                        className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40 ${PRIMARY_CLASS}`}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add to proposal
-                      </button>
-                    </div>
-                    {stagingLibrary.length === 0 ? (
-                      <p className="mt-3 text-xs text-amber-800 dark:text-amber-200/90">
-                        No presets yet. Use{" "}
-                        <span className="font-semibold">Staging library</span> to
-                        create saved staging lines.
-                      </p>
-                    ) : null}
+                  <div className="rounded-xl border border-dashed border-violet-300/80 bg-violet-50/30 p-4 text-xs text-violet-900 dark:border-violet-800/60 dark:bg-violet-950/20 dark:text-violet-200">
+                    Use <strong>Add staging</strong> under each plant block to
+                    pick materials. <strong>Browse catalog</strong> opens a
+                    read-only view of every staging item.
                   </div>
                 </div>
               ) : null}
@@ -3141,380 +3482,255 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     return (
                       <Fragment key={`${it.catalogId}-${i}`}>
                         {showStagingPlantHeader && stagingBanner ? (
-                          <div className="flex items-center gap-3 border-b border-emerald-200/70 pb-2 pt-1 dark:border-emerald-900/40">
-                            <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-emerald-200/80 bg-white dark:border-emerald-900/50 dark:bg-gray-900">
-                              {stagingBanner.photo ? (
-                                stagingBanner.photo.startsWith("data:") ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={stagingBanner.photo}
-                                    alt=""
-                                    className="h-full w-full object-cover"
-                                  />
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-200/70 pb-2 pt-1 dark:border-emerald-900/40">
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-emerald-200/80 bg-white dark:border-emerald-900/50 dark:bg-gray-900">
+                                {stagingBanner.photo ? (
+                                  stagingBanner.photo.startsWith("data:") ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={stagingBanner.photo}
+                                      alt=""
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <Image
+                                      src={stagingBanner.photo}
+                                      alt=""
+                                      fill
+                                      className="object-cover"
+                                      sizes="44px"
+                                      unoptimized
+                                    />
+                                  )
                                 ) : (
-                                  <Image
-                                    src={stagingBanner.photo}
-                                    alt=""
-                                    fill
-                                    className="object-cover"
-                                    sizes="44px"
-                                    unoptimized
-                                  />
-                                )
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-emerald-700/50 dark:text-emerald-400/40">
-                                  <Leaf className="h-5 w-5" aria-hidden />
-                                </div>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
-                                Staging for plant
-                              </p>
-                              <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                                {stagingBanner.title}
-                              </p>
-                            </div>
-                          </div>
-                        ) : null}
-                        <div
-                          className="relative rounded-xl border border-gray-200 bg-gray-50/30 p-4 dark:border-gray-700 dark:bg-gray-950/40"
-                        >
-                        <div
-                          className={`mb-3 flex items-start gap-3 ${it.category === "staging" ? "justify-between" : "justify-end"}`}
-                        >
-                          {it.category === "staging" ? (
-                            <div className="flex min-w-0 flex-1 items-start gap-3">
-                              {stagingThumb ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setStagingImagePreview(stagingThumb)
-                                  }
-                                  className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm ring-1 ring-gray-200/80 transition hover:ring-[#2b7041]/40 dark:border-gray-700 dark:bg-gray-900 dark:ring-gray-700"
-                                  title="Ampliar imagen"
-                                >
-                                  <Image
-                                    src={stagingThumb}
-                                    alt=""
-                                    fill
-                                    className="object-contain p-1"
-                                    sizes="64px"
-                                    unoptimized
-                                  />
-                                </button>
-                              ) : (
-                                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-100 text-gray-400 dark:border-gray-700 dark:bg-gray-900">
-                                  <Layers className="h-6 w-6" aria-hidden />
-                                </div>
-                              )}
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-200/80 px-2.5 py-0.5 text-[11px] font-medium text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-                                  {it.vendorName}
-                                </span>
-                                {it.catalogId.startsWith("staging-auto-") ? (
-                                  <span className="rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200">
-                                    Auto
-                                  </span>
-                                ) : null}
+                                  <div className="flex h-full w-full items-center justify-center text-emerald-700/50 dark:text-emerald-400/40">
+                                    <Leaf className="h-5 w-5" aria-hidden />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                                  Staging for plant
+                                </p>
+                                <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                  {stagingBanner.title}
+                                </p>
                               </div>
                             </div>
-                          ) : null}
-                          {it.category !== "staging" ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (it.category === "plant") {
-                                  setGrowerResupplyDraftIndex(i);
-                                  setGrowerCatalogSearch("");
-                                  setGrowerCatalogModalOpen(true);
-                                } else {
-                                  setPotResupplyDraftIndex(i);
-                                  setPotCatalogSearch("");
-                                  setPotCatalogModalOpen(true);
+                            {stagingGroupKeyFromLine(it) !== "__manual__" ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setStagingPickPlantKey(
+                                    stagingGroupKeyFromLine(it),
+                                  )
                                 }
-                              }}
-                              className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium text-sky-900 transition hover:bg-sky-200/80 dark:bg-sky-950 dark:text-sky-200 dark:hover:bg-sky-900"
-                            >
-                              <Store className="h-3 w-3 shrink-0" />
-                              {it.vendorName}
-                              <span className="text-sky-600"> (Change)</span>
-                            </button>
-                          ) : null}
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-12 sm:items-end">
-                          <div className="sm:col-span-4">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                              Description
-                            </label>
-                            <input
-                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                              value={it.name}
-                              disabled={potClientOwned}
-                              onChange={(e) =>
-                                updateDraftItem(i, { name: e.target.value })
-                              }
-                            />
-                            {it.category === "pot" ? (
-                              <label className="mt-2 flex cursor-pointer items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  className="rounded border-gray-300"
-                                  checked={it.clientOwnsPot ?? false}
-                                  onChange={(e) => {
-                                    const c = e.target.checked;
-                                    updateDraftItem(i, {
-                                      clientOwnsPot: c,
-                                      wholesaleCost: c
-                                        ? 0
-                                        : it.wholesaleCost || 28,
-                                      markup: c ? 1 : 2.5,
-                                    });
-                                  }}
-                                />
-                                <span className="text-sm text-gray-700 dark:text-gray-300">
-                                  Client already has this pot
-                                </span>
-                              </label>
+                                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 shadow-sm hover:bg-violet-100/90 dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/70"
+                              >
+                                <Plus className="h-4 w-4 shrink-0" />
+                                Add staging
+                              </button>
                             ) : null}
                           </div>
-                          <div className="sm:col-span-2">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                              Area
-                            </label>
-                            <input
-                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                              placeholder="e.g. Boardroom"
-                              value={it.area ?? ""}
-                              onChange={(e) =>
-                                updateDraftItem(i, { area: e.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="sm:col-span-1">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                              Qty
-                            </label>
-                            <input
-                              type="number"
-                              min={1}
-                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                              value={it.qty}
-                              onChange={(e) =>
-                                updateDraftItem(i, {
-                                  qty: Math.max(1, Number(e.target.value) || 1),
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="sm:col-span-2">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                              Cost $
-                            </label>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              disabled={potClientOwned}
-                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
-                              value={it.wholesaleCost}
-                              onChange={(e) =>
-                                updateDraftItem(i, {
-                                  wholesaleCost: Number(e.target.value) || 0,
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="sm:col-span-2">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                              Markup
-                            </label>
-                            <select
-                              disabled={potClientOwned}
-                              className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
-                              value={it.markup}
-                              onChange={(e) =>
-                                updateDraftItem(i, {
-                                  markup: Number(e.target.value),
-                                })
-                              }
-                            >
-                              {MARKUPS.map((m) => (
-                                <option key={m} value={m}>
-                                  ×{m}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="sm:col-span-1">
-                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                              Retail
-                            </label>
-                            <p className="py-2 text-sm font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
-                              {money.format(
-                                potClientOwned
-                                  ? 0
-                                  : lineRetail(
-                                      it.qty,
-                                      it.wholesaleCost,
-                                      it.markup,
-                                    ),
-                              )}
-                            </p>
-                          </div>
-                          {it.category === "plant" ? (
-                            <div className="sm:col-span-12">
-                              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                                <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
-                                  Access &amp; handling (auto-labor)
-                                </p>
-                                <div className="grid gap-2 sm:grid-cols-5">
-                                  <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-gray-500">
-                                    <span>Size (inches)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      step={0.5}
-                                      placeholder="auto"
-                                      className="w-full rounded border border-gray-200 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                      value={
-                                        typeof it.sizeInches === "number"
-                                          ? it.sizeInches
-                                          : ""
-                                      }
-                                      onChange={(e) => {
-                                        const raw = e.target.value.trim();
-                                        updateDraftItem(i, {
-                                          sizeInches:
-                                            raw === ""
-                                              ? null
-                                              : Math.max(0, Number(raw) || 0),
-                                        });
-                                      }}
+                        ) : null}
+                        <div className="relative rounded-xl border border-gray-200 bg-gray-50/30 p-4 dark:border-gray-700 dark:bg-gray-950/40">
+                          <div
+                            className={`mb-3 flex items-start gap-3 ${it.category === "staging" ? "justify-between" : "justify-end"}`}
+                          >
+                            {it.category === "staging" ? (
+                              <div className="flex min-w-0 flex-1 items-start gap-3">
+                                {stagingThumb ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setStagingImagePreview(stagingThumb)
+                                    }
+                                    className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm ring-1 ring-gray-200/80 transition hover:ring-[#2b7041]/40 dark:border-gray-700 dark:bg-gray-900 dark:ring-gray-700"
+                                    title="Ampliar imagen"
+                                  >
+                                    <Image
+                                      src={stagingThumb}
+                                      alt=""
+                                      fill
+                                      className="object-contain p-1"
+                                      sizes="64px"
+                                      unoptimized
                                     />
-                                  </label>
-                                  <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-gray-500">
-                                    <span>Access</span>
-                                    <select
-                                      className="w-full rounded border border-gray-200 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                      value={it.accessDifficulty ?? "easy"}
-                                      onChange={(e) =>
-                                        updateDraftItem(i, {
-                                          accessDifficulty: e.target.value as
-                                            | "easy"
-                                            | "difficult",
-                                        })
-                                      }
-                                    >
-                                      <option value="easy">Easy</option>
-                                      <option value="difficult">
-                                        Difficult (stairs / small elevator)
-                                      </option>
-                                    </select>
-                                  </label>
-                                  <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-gray-500">
-                                    <span>Floors (stairs)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      step={1}
-                                      className="w-full rounded border border-gray-200 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                      value={it.stairsFloors ?? 0}
-                                      onChange={(e) =>
-                                        updateDraftItem(i, {
-                                          stairsFloors: Math.max(
-                                            0,
-                                            Math.floor(
-                                              Number(e.target.value) || 0,
-                                            ),
-                                          ),
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-gray-500">
-                                    <span>Extra distance (m)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      step={1}
-                                      className="w-full rounded border border-gray-200 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                      value={it.extraDistanceMeters ?? 0}
-                                      onChange={(e) =>
-                                        updateDraftItem(i, {
-                                          extraDistanceMeters: Math.max(
-                                            0,
-                                            Number(e.target.value) || 0,
-                                          ),
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="flex cursor-pointer flex-col gap-1 text-[10px] uppercase tracking-wide text-gray-500">
-                                    <span>Fragile / wet</span>
-                                    <span className="flex items-center gap-2 rounded border border-gray-200 px-2 py-1 dark:border-gray-700">
-                                      <input
-                                        type="checkbox"
-                                        className="h-4 w-4 rounded border-gray-300 text-[#2b7041] focus:ring-[#2b7041]"
-                                        checked={it.fragile ?? false}
-                                        onChange={(e) =>
-                                          updateDraftItem(i, {
-                                            fragile: e.target.checked,
-                                          })
-                                        }
-                                      />
-                                      <span className="text-xs normal-case text-gray-700 dark:text-gray-200">
-                                        {it.fragile ? "Yes" : "No"}
-                                      </span>
+                                  </button>
+                                ) : (
+                                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-100 text-gray-400 dark:border-gray-700 dark:bg-gray-900">
+                                    <Layers className="h-6 w-6" aria-hidden />
+                                  </div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-200/80 px-2.5 py-0.5 text-[11px] font-medium text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                                    {it.vendorName}
+                                  </span>
+                                  {it.catalogId.startsWith("staging-auto-") ? (
+                                    <span className="rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200">
+                                      Auto
                                     </span>
-                                  </label>
-                                  <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-gray-500 sm:col-span-2">
-                                    <span>Location (affects materials)</span>
-                                    <span className="flex divide-x divide-gray-200 overflow-hidden rounded border border-gray-200 dark:divide-gray-700 dark:border-gray-700">
-                                      {(["indoor", "outdoor"] as const).map(
-                                        (env) => {
-                                          const active =
-                                            (it.environment ?? "indoor") === env;
-                                          return (
-                                            <button
-                                              key={env}
-                                              type="button"
-                                              onClick={() =>
-                                                updateDraftItem(i, {
-                                                  environment: env,
-                                                })
-                                              }
-                                              className={`flex-1 px-2 py-1 text-xs normal-case ${
-                                                active
-                                                  ? "bg-emerald-50 font-semibold text-[#2b7041] dark:bg-emerald-950/40 dark:text-emerald-200"
-                                                  : "bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-950 dark:text-gray-400 dark:hover:bg-gray-900"
-                                              }`}
-                                            >
-                                              {env === "indoor"
-                                                ? "Indoor"
-                                                : "Outdoor"}
-                                            </button>
-                                          );
-                                        },
-                                      )}
-                                    </span>
-                                  </label>
+                                  ) : null}
                                 </div>
                               </div>
+                            ) : null}
+                            {it.category !== "staging" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (it.category === "plant") {
+                                    setGrowerResupplyDraftIndex(i);
+                                    setGrowerCatalogSearch("");
+                                    setGrowerCatalogModalOpen(true);
+                                  } else {
+                                    setPotResupplyDraftIndex(i);
+                                    setPotCatalogSearch("");
+                                    setPotCatalogModalOpen(true);
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-medium text-sky-900 transition hover:bg-sky-200/80 dark:bg-sky-950 dark:text-sky-200 dark:hover:bg-sky-900"
+                              >
+                                <Store className="h-3 w-3 shrink-0" />
+                                {it.vendorName}
+                                <span className="text-sky-600"> (Change)</span>
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-12 sm:items-end">
+                            <div className="sm:col-span-4">
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Description
+                              </label>
+                              <input
+                                className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                value={it.name}
+                                disabled={potClientOwned}
+                                onChange={(e) =>
+                                  updateDraftItem(i, { name: e.target.value })
+                                }
+                              />
                             </div>
-                          ) : null}
-                          <div className="flex justify-end sm:col-span-12">
-                            <button
-                              type="button"
-                              onClick={() => removeDraftItem(i)}
-                              className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                              aria-label="Remove line"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            <div className="sm:col-span-2">
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Area
+                              </label>
+                              <input
+                                className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                placeholder="e.g. Boardroom"
+                                value={it.area ?? ""}
+                                onChange={(e) =>
+                                  updateDraftItem(i, { area: e.target.value })
+                                }
+                              />
+                            </div>
+                            <div className="sm:col-span-1">
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Qty
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                value={it.qty}
+                                onChange={(e) =>
+                                  updateDraftItem(i, {
+                                    qty: Math.max(
+                                      1,
+                                      Number(e.target.value) || 1,
+                                    ),
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Cost $
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                disabled={potClientOwned}
+                                className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
+                                value={it.wholesaleCost}
+                                onChange={(e) =>
+                                  updateDraftItem(i, {
+                                    wholesaleCost: Number(e.target.value) || 0,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Markup
+                              </label>
+                              <select
+                                disabled={potClientOwned}
+                                className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
+                                value={it.markup}
+                                onChange={(e) =>
+                                  updateDraftItem(i, {
+                                    markup: Number(e.target.value),
+                                  })
+                                }
+                              >
+                                {markupOptionsForSelect(
+                                  engineConfig,
+                                  it.markup,
+                                ).map((m) => (
+                                  <option key={m} value={m}>
+                                    ×{m}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="sm:col-span-1">
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Retail
+                              </label>
+                              <p className="py-2 text-sm font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
+                                {money.format(
+                                  potClientOwned
+                                    ? 0
+                                    : lineRetail(
+                                        it.qty,
+                                        it.wholesaleCost,
+                                        it.markup,
+                                      ),
+                                )}
+                              </p>
+                            </div>
+                            {it.category === "plant" ? (
+                              <div className="sm:col-span-12 rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+                                Environment from client requirements:{" "}
+                                <strong>
+                                  {(it.environment ?? "indoor") === "outdoor"
+                                    ? "Outdoor"
+                                    : "Indoor"}
+                                </strong>
+                                {it.plantingWithoutPot
+                                  ? " · Planting without pot active."
+                                  : it.clientOwnsPot
+                                    ? " · Client already has pot."
+                                    : ""}
+                                {it.guaranteed
+                                  ? " · Guaranteed plant active."
+                                  : ""}
+                              </div>
+                            ) : null}
+                            <div className="flex justify-end sm:col-span-12">
+                              <button
+                                type="button"
+                                onClick={() => removeDraftItem(i)}
+                                className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                                aria-label="Remove line"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
                       </Fragment>
                     );
                   })}
@@ -3539,9 +3755,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   Plants requiring periodic replacement were auto-detected.
                 </p>
                 <p className="mt-2 rounded-lg border border-amber-200/80 bg-amber-50/60 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
-                  Truck fee ($25 vs $50): confirm with operations at what plant
-                  count or route conditions each applies — rules are not encoded
-                  yet.
+                  Truck fee is auto-calculated from configured plant-count
+                  ranges. Current total plants:{" "}
+                  <strong>{totalPlantUnitsForTruckFee}</strong> · fee:{" "}
+                  <strong>${computedTruckFee.toFixed(2)}</strong>.
                 </p>
               </div>
 
@@ -3574,8 +3791,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                 {r.plantName}
                               </p>
                               <p className="mt-1 text-xs text-gray-500">
-                                Catalog price {money.format(r.rotationUnitPrice)}{" "}
-                                · truck ${r.truckFee}
+                                Catalog price{" "}
+                                {money.format(r.rotationUnitPrice)} · truck $
+                                {r.truckFee}
                               </p>
                             </div>
                             <div className="text-right">
@@ -3613,18 +3831,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                               <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
                                 Truck fee (P3)
                               </label>
-                              <select
-                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                value={r.truckFee}
-                                onChange={(e) =>
-                                  updateRotation(idx, {
-                                    truckFee: Number(e.target.value) as 25 | 50,
-                                  })
-                                }
-                              >
-                                <option value={25}>$25</option>
-                                <option value={50}>$50</option>
-                              </select>
+                              <input
+                                type="text"
+                                readOnly
+                                value={`$${r.truckFee.toFixed(2)} (auto by plant ranges)`}
+                                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                              />
                             </div>
                           </div>
 
@@ -3661,7 +3873,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
                   <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/30">
                     <span className="text-sm font-bold text-[#2b7041] dark:text-emerald-400">
-                      Annual budget impact
+                      Total
                     </span>
                     <span className="text-lg font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
                       {money.format(rotationsAnnualTotal)}
@@ -3693,40 +3905,22 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
               <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
                 <p className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
-                  Generic catalog vs. your photos
+                  Plant photo source
                 </p>
                 <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                  Choose whether to lean on the internal plant photo library or
-                  site-specific shots. You can still mix per plant below.
+                  The flow now uses the internal catalog by default. You can
+                  still upload and mix your own photos per plant below.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      setPhotoSourceChoice("catalog");
-                      void applyCatalogPhotosToAllPlants();
-                    }}
-                    className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                      photoSourceChoice === "catalog"
-                        ? `${PRIMARY_CLASS} text-white`
-                        : "border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-                    }`}
+                    onClick={() => void applyCatalogPhotosToAllPlants()}
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold dark:border-gray-700 dark:bg-gray-900"
                   >
-                    Prefer catalog photos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPhotoSourceChoice("custom")}
-                    className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                      photoSourceChoice === "custom"
-                        ? `${PRIMARY_CLASS} text-white`
-                        : "border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-                    }`}
-                  >
-                    Prefer my uploads
+                    Use catalog suggestions
                   </button>
                 </div>
-                {photoTargets.length > 0 ? (
+                {visiblePhotoTargets.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => void applyCatalogPhotosToAllPlants()}
@@ -3739,25 +3933,26 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               <div className="space-y-4">
-                {photoTargets.length === 0 ? (
+                {missingImagePhotoTargets.length > 0 ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                    {missingImagePhotoTargets.length} plant
+                    {missingImagePhotoTargets.length === 1 ? "" : "s"} hidden
+                    from Photos because no catalog image match is available yet.
+                  </div>
+                ) : null}
+                {visiblePhotoTargets.length === 0 ? (
                   <p className="text-center text-sm text-gray-500">
                     Add at least one plant in Products, save with Next, then
                     attach photos here.
                   </p>
                 ) : (
-                  photoTargets.map((row) => {
+                  visiblePhotoTargets.map(({ row, urls, suggested }) => {
                     const plantLabel = row.name || "this plant";
                     const sizeLine = `${potSizeFromPlantName(row.name)} × ${row.qty}`;
-                    const urls =
-                      draftItems[row.globalIndex]?.category === "plant"
-                        ? (draftItems[row.globalIndex].photos ?? [])
-                        : [];
-                    const catalogPickerRows = catalogEntriesForPhotoPicker(
-                      plantLabel,
-                      "",
-                      plantReferenceCatalog.plants,
-                    );
-                    const suggestedCatalogPhoto = catalogPickerRows[0];
+                    const suggestedCatalogPhoto = suggested;
+                    const showSuggested =
+                      Boolean(suggestedCatalogPhoto?.imagePublicPath) &&
+                      !hiddenSuggestedKeys[row.key];
                     return (
                       <div
                         key={row.key}
@@ -3793,11 +3988,25 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                             </button>
                           </div>
                         </div>
-                        {suggestedCatalogPhoto?.imagePublicPath ? (
+                        {showSuggested ? (
                           <div className="mb-3 rounded-lg border border-emerald-200/70 bg-emerald-50/40 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-300">
-                              Suggested catalog photo
-                            </p>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-300">
+                                Suggested catalog photo
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setHiddenSuggestedKeys((prev) => ({
+                                    ...prev,
+                                    [row.key]: true,
+                                  }))
+                                }
+                                className="text-[10px] font-semibold text-emerald-800 underline dark:text-emerald-300"
+                              >
+                                Hide suggestion
+                              </button>
+                            </div>
                             <div className="flex items-center gap-3">
                               <button
                                 type="button"
@@ -3833,6 +4042,18 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                 className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-gray-900 dark:text-emerald-100 dark:hover:bg-gray-800"
                               >
                                 Add suggested photo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void replacePlantPhotosWithCatalog(
+                                    row.globalIndex,
+                                    suggestedCatalogPhoto.imagePublicPath!,
+                                  )
+                                }
+                                className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                              >
+                                Replace current photos
                               </button>
                             </div>
                           </div>
@@ -4023,7 +4244,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         </li>
                         <li>
                           Overhead factor:{" "}
-                          {summary.calculations.maintenanceBreakdown.overheadFactor}
+                          {
+                            summary.calculations.maintenanceBreakdown
+                              .overheadFactor
+                          }
                         </li>
                         <li>
                           Overhead:{" "}
@@ -4053,9 +4277,27 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         {money.format(summary.calculations.maintenanceMonthly)}
                       </dd>
                     </div>
+                    <div className="flex justify-between gap-4 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900">
+                      <dt className="text-gray-500">Guaranteed plants / mo</dt>
+                      <dd className="tabular-nums font-semibold">
+                        {money.format(
+                          summary.calculations.guaranteedPlantsMonthly,
+                        )}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900">
+                      <dt className="text-gray-500">
+                        Annual replacement budget
+                      </dt>
+                      <dd className="tabular-nums font-semibold">
+                        {money.format(
+                          summary.calculations.annualReplacementBudget,
+                        )}
+                      </dd>
+                    </div>
                     <div className="flex justify-between gap-4 rounded-lg bg-emerald-50 px-3 py-2 sm:col-span-2 dark:bg-emerald-950/30">
                       <dt className="font-bold text-[#2b7041] dark:text-emerald-400">
-                        Annual total (est.)
+                        Total
                       </dt>
                       <dd className="text-lg font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
                         {money.format(summary.calculations.priceToClientAnnual)}
@@ -4146,9 +4388,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 <button
                   type="button"
                   disabled={
-                    busy ||
-                    !summary ||
-                    summary.proposal.status !== "draft"
+                    busy || !summary || summary.proposal.status !== "draft"
                   }
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700/90 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => {
@@ -4708,14 +4948,16 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               Reduce beneficiaries
             </h3>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              You set the count to {beneficiaryReduceModal.targetCount}, but there
-              are {uniqueSelectedBeneficiaryIds.length} selected beneficiaries.
-              Choose {reduceRequiredCount} beneficiary
+              You set the count to {beneficiaryReduceModal.targetCount}, but
+              there are {uniqueSelectedBeneficiaryIds.length} selected
+              beneficiaries. Choose {reduceRequiredCount} beneficiary
               {reduceRequiredCount === 1 ? "" : "ies"} to remove.
             </p>
             <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
               {uniqueSelectedBeneficiaryIds.map((id) => {
-                const row = commissionBeneficiaryCatalog.find((b) => b.id === id);
+                const row = commissionBeneficiaryCatalog.find(
+                  (b) => b.id === id,
+                );
                 const checked = beneficiaryRemovePicks.includes(id);
                 return (
                   <label
@@ -4766,6 +5008,199 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         </div>
       ) : null}
 
+      {stagingCatalogModalOpen ? (
+        <div
+          className="no-print fixed inset-0 z-[100] flex items-end justify-center p-0 sm:items-center sm:p-4"
+          role="presentation"
+        >
+          <button
+            type="button"
+            aria-label="Close staging catalog"
+            className="absolute inset-0 bg-[#121212]/55 backdrop-blur-sm transition dark:bg-black/65"
+            onClick={() => setStagingCatalogModalOpen(false)}
+          />
+          <div
+            className="relative z-[101] flex max-h-[min(90vh,820px)] w-full max-w-5xl flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-[#f5f2eb] shadow-2xl dark:border-gray-700 dark:bg-gray-900 sm:rounded-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="staging-catalog-title"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-200/80 px-5 py-4 dark:border-gray-700">
+              <div className="flex gap-3">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm"
+                  style={{ backgroundColor: PRIMARY }}
+                >
+                  <Layers className="h-5 w-5" strokeWidth={2} />
+                </span>
+                <div>
+                  <h2
+                    id="staging-catalog-title"
+                    className="text-lg font-bold text-[#2b7041] dark:text-emerald-400"
+                  >
+                    Browse staging catalog
+                  </h2>
+                  <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-400">
+                    Reference only — you cannot add from here. Use{" "}
+                    <strong>Add staging</strong> under each plant on the Staging
+                    tab; only presets not already on that plant are offered
+                    (remove a line to add it again).
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStagingCatalogModalOpen(false)}
+                className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-200/80 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-4 sm:px-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {stagingLibrary.map((row) => (
+                  <div
+                    key={row.id}
+                    className="overflow-hidden rounded-xl border border-violet-200/90 bg-white shadow-sm dark:border-violet-800 dark:bg-gray-950"
+                  >
+                    <div className="relative aspect-square w-full bg-gray-100 dark:bg-gray-900">
+                      {row.imageUrl ? (
+                        <Image
+                          src={row.imageUrl}
+                          alt={row.label}
+                          fill
+                          className="object-contain p-2"
+                          sizes="(max-width: 768px) 100vw, 33vw"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-gray-400">
+                          <Layers className="h-8 w-8" aria-hidden />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2 border-t border-violet-100 p-3 dark:border-violet-900/50">
+                      <p className="line-clamp-2 text-sm font-semibold text-gray-900 dark:text-white">
+                        {row.label}
+                      </p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        Base: {money.format(row.wholesaleCost)} · Markup ×
+                        {row.markup}
+                      </p>
+                      {row.description ? (
+                        <p className="line-clamp-3 text-xs text-gray-500 dark:text-gray-400">
+                          {row.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {stagingPickPlantKey ? (
+        <div
+          className="no-print fixed inset-0 z-[100] flex items-end justify-center p-0 sm:items-center sm:p-4"
+          role="presentation"
+        >
+          <button
+            type="button"
+            aria-label="Close add staging"
+            className="absolute inset-0 bg-[#121212]/55 backdrop-blur-sm transition dark:bg-black/65"
+            onClick={() => setStagingPickPlantKey(null)}
+          />
+          <div
+            className="relative z-[101] flex max-h-[min(90vh,820px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-[#f5f2eb] shadow-2xl dark:border-gray-700 dark:bg-gray-900 sm:rounded-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="staging-pick-title"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-200/80 px-5 py-4 dark:border-gray-700">
+              <div>
+                <h2
+                  id="staging-pick-title"
+                  className="text-lg font-bold text-[#2b7041] dark:text-emerald-400"
+                >
+                  Add staging
+                </h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  For{" "}
+                  <strong>
+                    {
+                      stagingSectionBanner(stagingPickPlantKey, draftItems)
+                        .title
+                    }
+                  </strong>
+                  . Tap an item to add it (already on this plant, including
+                  auto, is hidden).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStagingPickPlantKey(null)}
+                className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-200/80 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-2 sm:px-5">
+              {stagingPickOptions.length === 0 ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-center text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
+                  Every catalog preset is already on this plant (including
+                  auto-generated lines). Remove a line if you want to add that
+                  preset again.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {stagingPickOptions.map((row) => (
+                    <button
+                      key={row.id}
+                      type="button"
+                      onClick={() =>
+                        addStagingPresetForPlant(row, stagingPickPlantKey)
+                      }
+                      className="flex gap-3 overflow-hidden rounded-xl border border-violet-200/90 bg-white p-3 text-left shadow-sm transition hover:border-violet-400/80 hover:bg-violet-50/40 dark:border-violet-800 dark:bg-gray-950 dark:hover:border-violet-600 dark:hover:bg-violet-950/20"
+                    >
+                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-900">
+                        {row.imageUrl ? (
+                          <Image
+                            src={row.imageUrl}
+                            alt=""
+                            fill
+                            className="object-contain p-1"
+                            sizes="80px"
+                            unoptimized
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-gray-400">
+                            <Layers className="h-8 w-8" aria-hidden />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {row.label}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                          Base {money.format(row.wholesaleCost)} · Markup ×
+                          {row.markup}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {stagingLibraryModalOpen ? (
         <div
           className="no-print fixed inset-0 z-[100] flex items-center justify-center p-4"
@@ -4801,8 +5236,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <p className="mb-4 text-xs text-gray-600 dark:text-gray-400">
-                Presets are stored in this browser. Close when done — add lines
-                to the proposal from the Staging tab using the dropdown.
+                Presets are stored in this browser. Close when done — on the
+                Staging tab use <strong>Add staging</strong> under each plant to
+                attach materials to the proposal.
               </p>
               <div className="space-y-2">
                 {stagingLibrary.map((row) => (
@@ -4874,11 +5310,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         )
                       }
                     >
-                      {MARKUPS.map((m) => (
-                        <option key={m} value={m}>
-                          ×{m}
-                        </option>
-                      ))}
+                      {markupOptionsForSelect(engineConfig, row.markup).map(
+                        (m) => (
+                          <option key={m} value={m}>
+                            ×{m}
+                          </option>
+                        ),
+                      )}
                     </select>
                     <button
                       type="button"
@@ -4904,7 +5342,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       id: newStagingLibraryId(),
                       label: "New staging item",
                       wholesaleCost: 10,
-                      markup: 1.5,
+                      markup: engineConfig.defaultMarkup,
                     },
                   ])
                 }

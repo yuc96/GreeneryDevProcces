@@ -1,4 +1,4 @@
-area,qty,pot_type,notes,plant_keyword,plant_catalog_id
-Lobby,2,MONACO RECTANGULAR PLANTER,Near reception,Kentia Palm,
-Conference room,1,RIO GRANDE PLANTER,Floor corner,Snake Plant,
-Break room,3,,Client-supplied pot — no PO,Golden Pothos,
+area,qty,environment,guaranteed,client_has_pot,planting_without_pot,pot_type,notes,plant_keyword,plant_catalog_id
+Lobby,2,indoor,true,true,false,,Near reception,Kentia Palm,
+Conference room,1,outdoor,false,false,true,,Direct planting line,Snake Plant,
+Break room,3,indoor,true,true,false,,Customer keeps existing planters,Golden Pothos,

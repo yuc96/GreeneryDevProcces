@@ -1,8 +1,10 @@
 import stagingsData from "@/data/staggings-list.json";
+import { DEFAULT_PRICING_ENGINE_CONFIG } from "@/server/pricing/engine-schema";
 
 export interface StagingProviderOption {
   name: string;
   price: number;
+  address?: string;
 }
 
 /** Preset for staging lines (JSON catalog + user-saved rows). */
@@ -24,8 +26,10 @@ function cheapestProvider(
   return providers.reduce((a, b) => (a.price <= b.price ? a : b));
 }
 
-/** Default markup for catalog staging lines (must exist in MARKUPS in wizard). */
-export const STAGING_CATALOG_DEFAULT_MARKUP = 1.75;
+const PROVIDER_ADDRESS_BY_NAME: Record<string, string> = {
+  "Home Depot": "2355 S Semoran Blvd, Orlando, FL 32822",
+  "Lowe's": "3500 S Orange Blossom Trl, Orlando, FL 32839",
+};
 
 /**
  * Builds library rows from `src/data/staggings-list.json` (images + provider prices).
@@ -37,10 +41,13 @@ export function buildStagingLibraryFromJson(): StagingLibraryItem[] {
       id: `staging-cat-${s.id}`,
       label: `${s.name} — ${s.description}`,
       wholesaleCost: cheapest.price,
-      markup: STAGING_CATALOG_DEFAULT_MARKUP,
+      markup: DEFAULT_PRICING_ENGINE_CONFIG.defaultMarkup,
       description: s.description,
       imageUrl: s.image,
-      providers: s.providers,
+      providers: s.providers.map((p) => ({
+        ...p,
+        address: PROVIDER_ADDRESS_BY_NAME[p.name] ?? "Orlando, FL",
+      })),
       sourceId: s.id,
     };
   });

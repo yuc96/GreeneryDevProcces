@@ -108,9 +108,39 @@ function parseRequirementLine(
     typeof r.plantCatalogId === "string" ? r.plantCatalogId.trim() : "";
   const area = typeof r.area === "string" ? r.area.trim() : "";
   const qty = Math.max(1, Math.floor(Number(r.qty) || 1));
+  const environment =
+    r.environment === "indoor" || r.environment === "outdoor"
+      ? r.environment
+      : null;
+  if (environment == null) {
+    throw new HttpError(
+      400,
+      `requirementLines[${index}].environment must be indoor or outdoor`,
+    );
+  }
+  const clientHasPot = Boolean(r.clientHasPot);
+  const plantingWithoutPot = Boolean(r.plantingWithoutPot);
+  const guaranteed = Boolean(r.guaranteed);
+  if (clientHasPot && plantingWithoutPot) {
+    throw new HttpError(
+      400,
+      `requirementLines[${index}] cannot select both pot modes`,
+    );
+  }
   const potType = typeof r.potType === "string" ? r.potType.trim() : "";
   const notes = typeof r.notes === "string" ? r.notes.trim().slice(0, 2000) : "";
-  return { id, plantCatalogId, area, qty, potType, notes };
+  return {
+    id,
+    plantCatalogId,
+    area,
+    qty,
+    environment,
+    clientHasPot,
+    plantingWithoutPot,
+    guaranteed,
+    potType,
+    notes,
+  };
 }
 
 export function parsePatchGeneral(body: unknown): PatchProposalGeneralInput {
@@ -289,35 +319,6 @@ function parseItem(row: unknown, index: number): ProposalItemInput {
   if (sizeInches !== undefined && (!Number.isFinite(sizeInches) || sizeInches < 0)) {
     throw new HttpError(400, `items[${index}].sizeInches is invalid`);
   }
-  const accessDifficulty =
-    r.accessDifficulty === undefined
-      ? undefined
-      : r.accessDifficulty === "easy" || r.accessDifficulty === "difficult"
-        ? (r.accessDifficulty as "easy" | "difficult")
-        : null;
-  if (accessDifficulty === null) {
-    throw new HttpError(400, `items[${index}].accessDifficulty is invalid`);
-  }
-  const stairsFloors =
-    r.stairsFloors === undefined ? undefined : Number(r.stairsFloors);
-  if (
-    stairsFloors !== undefined &&
-    (!Number.isFinite(stairsFloors) || stairsFloors < 0)
-  ) {
-    throw new HttpError(400, `items[${index}].stairsFloors is invalid`);
-  }
-  const extraDistanceMeters =
-    r.extraDistanceMeters === undefined
-      ? undefined
-      : Number(r.extraDistanceMeters);
-  if (
-    extraDistanceMeters !== undefined &&
-    (!Number.isFinite(extraDistanceMeters) || extraDistanceMeters < 0)
-  ) {
-    throw new HttpError(400, `items[${index}].extraDistanceMeters is invalid`);
-  }
-  const fragile =
-    r.fragile === undefined ? undefined : Boolean(r.fragile);
   const environment =
     r.environment === undefined
       ? undefined
@@ -327,6 +328,12 @@ function parseItem(row: unknown, index: number): ProposalItemInput {
   if (environment === null) {
     throw new HttpError(400, `items[${index}].environment is invalid`);
   }
+  const plantingWithoutPot =
+    r.plantingWithoutPot === undefined
+      ? undefined
+      : Boolean(r.plantingWithoutPot);
+  const guaranteed =
+    r.guaranteed === undefined ? undefined : Boolean(r.guaranteed);
   let relatedPlantItemId: string | undefined;
   let stagingImageUrl: string | undefined;
   if (category === "staging") {
@@ -372,11 +379,9 @@ function parseItem(row: unknown, index: number): ProposalItemInput {
     vendorAddress: String(r.vendorAddress ?? ""),
     ...(photos !== undefined ? { photos } : {}),
     ...(sizeInches !== undefined ? { sizeInches } : {}),
-    ...(accessDifficulty !== undefined ? { accessDifficulty } : {}),
-    ...(stairsFloors !== undefined ? { stairsFloors } : {}),
-    ...(extraDistanceMeters !== undefined ? { extraDistanceMeters } : {}),
-    ...(fragile !== undefined ? { fragile } : {}),
     ...(environment !== undefined ? { environment } : {}),
+    ...(plantingWithoutPot !== undefined ? { plantingWithoutPot } : {}),
+    ...(guaranteed !== undefined ? { guaranteed } : {}),
     ...(relatedPlantItemId !== undefined ? { relatedPlantItemId } : {}),
     ...(stagingImageUrl !== undefined ? { stagingImageUrl } : {}),
   };
@@ -394,7 +399,6 @@ export function parseReplaceItems(body: unknown): ProposalItemInput[] {
 }
 
 const FREQ_W = [4, 6, 8] as const;
-const TRUCK = [25, 50] as const;
 
 function parseRotation(row: unknown, index: number): ProposalRotationInput {
   if (!row || typeof row !== "object") {
@@ -414,8 +418,8 @@ function parseRotation(row: unknown, index: number): ProposalRotationInput {
   if (!Number.isFinite(rotationUnitPrice) || rotationUnitPrice < 0) {
     throw new HttpError(400, `rotations[${index}].rotationUnitPrice is invalid`);
   }
-  if (!Number.isInteger(truckFee) || !(TRUCK as readonly number[]).includes(truckFee)) {
-    throw new HttpError(400, `rotations[${index}].truckFee must be 25 or 50`);
+  if (!Number.isFinite(truckFee) || truckFee <= 0) {
+    throw new HttpError(400, `rotations[${index}].truckFee must be greater than 0`);
   }
   const id =
     typeof r.id === "string" && r.id.trim() ? String(r.id).trim() : undefined;
@@ -427,7 +431,7 @@ function parseRotation(row: unknown, index: number): ProposalRotationInput {
     frequencyName: String(r.frequencyName ?? ""),
     frequencyWeeks: frequencyWeeks as 4 | 6 | 8,
     rotationUnitPrice,
-    truckFee: truckFee as 25 | 50,
+    truckFee,
   };
 }
 

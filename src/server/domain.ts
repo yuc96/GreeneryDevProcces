@@ -30,6 +30,8 @@ export interface ClientEntity {
   isExistingCustomer?: boolean;
   /** Optional manual drive time (one-way, in minutes) from Greenery HQ to this client. */
   driveTimeMinutes?: number;
+  /** Optional straight-line distance in km from Greenery HQ. */
+  driveDistanceKm?: number;
   locations: LocationEntity[];
   createdAt: string;
 }
@@ -41,10 +43,9 @@ export interface LocationEntity {
   address?: string;
   /** Optional per-location drive time override (one-way, in minutes). */
   driveTimeMinutes?: number;
+  /** Optional straight-line distance in km from Greenery HQ. */
+  driveDistanceKm?: number;
 }
-
-/** Access & handling metadata used by the detailed auto-labor engine. */
-export type AccessDifficulty = "easy" | "difficult";
 
 /** Plant placement — drives staging recipe selection. */
 export type PlantEnvironment = "indoor" | "outdoor";
@@ -67,16 +68,12 @@ export interface ProposalItemEntity {
   photos?: string[];
   /** Plant pot size in inches (snapshotted for labor calculations). */
   sizeInches?: number | null;
-  /** "easy" (default) | "difficult" (stairs, narrow path, small elevator). */
-  accessDifficulty?: AccessDifficulty;
-  /** Floors above ground level that must be climbed. */
-  stairsFloors?: number;
-  /** Extra distance from unload point to final point, in meters. */
-  extraDistanceMeters?: number;
-  /** Fragile/wet plant that needs careful handling. */
-  fragile?: boolean;
   /** Indoor (decorative) vs outdoor (planted) — drives staging recipes. */
   environment?: PlantEnvironment;
+  /** Planting is done without purchasing a pot line for this plant. */
+  plantingWithoutPot?: boolean;
+  /** Plant is covered by guarantee rules. */
+  guaranteed?: boolean;
   /** Staging: links auto lines to a plant slot key. */
   relatedPlantItemId?: string;
   /** Staging: material thumbnail URL. */
@@ -103,8 +100,8 @@ export interface ProposalRotationEntity {
   frequencyWeeks: 4 | 6 | 8;
   /** Fixed catalog unit price for rotation plant (P1). */
   rotationUnitPrice: number;
-  /** Truck fee for P3 ($25 or $50). */
-  truckFee: 25 | 50;
+  /** Truck fee for P3 (configurable by plant-count ranges). */
+  truckFee: number;
 }
 
 /** Wizard requirements grid (persisted on the proposal). */
@@ -113,6 +110,10 @@ export interface ClientRequirementLineEntity {
   plantCatalogId: string;
   area: string;
   qty: number;
+  environment: PlantEnvironment;
+  clientHasPot: boolean;
+  plantingWithoutPot: boolean;
+  guaranteed: boolean;
   potType: string;
   notes: string;
 }

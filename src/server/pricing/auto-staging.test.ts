@@ -151,6 +151,51 @@ describe("computeAutoStagingForPlant (outdoor)", () => {
     // 5×17.97 + 5×6.97 = 89.85 + 34.85 = 124.70
     expect(res.totalWholesaleCost).toBeCloseTo(124.7, 2);
   });
+
+  it("uses planting-without-pot recipe automatically", () => {
+    const res = computeAutoStagingForPlant(
+      {
+        plantLineId: "p4b",
+        plantName: "Direct planting 12\"",
+        qty: 2,
+        potSizeInches: 12,
+        environment: "indoor",
+        plantingWithoutPot: true,
+      },
+      cfg,
+      MATERIALS,
+    );
+    // Planting-without-pot base recipe: soil + pine bark + mulch.
+    const byMat = Object.fromEntries(
+      res.components.map((c) => [c.materialSourceId, c.units]),
+    );
+    expect(byMat[5]).toBe(2);
+    expect(byMat[6]).toBe(2);
+    expect(byMat[7]).toBe(2);
+    expect(res.components.some((c) => c.materialSourceId === 8)).toBe(false);
+  });
+
+  it("adds peanut shell for large planting-without-pot", () => {
+    const res = computeAutoStagingForPlant(
+      {
+        plantLineId: "p4c",
+        plantName: "Direct planting 18\"",
+        qty: 1,
+        potSizeInches: 18,
+        environment: "outdoor",
+        plantingWithoutPot: true,
+      },
+      cfg,
+      MATERIALS,
+    );
+    const byMat = Object.fromEntries(
+      res.components.map((c) => [c.materialSourceId, c.units]),
+    );
+    expect(byMat[5]).toBe(2);
+    expect(byMat[6]).toBe(1);
+    expect(byMat[7]).toBe(1);
+    expect(byMat[8]).toBe(1);
+  });
 });
 
 describe("computeAutoStagingForPlant edge cases", () => {

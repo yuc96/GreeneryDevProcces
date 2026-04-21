@@ -6,6 +6,11 @@ import type {
 } from "../domain";
 import { PROPOSAL_LABOR_KEYS } from "../domain";
 import type { PricingEngineConfig } from "./engine-schema";
+import {
+  cppForDiameter,
+  parseSizeInchesFromText,
+  peopleNeededForQtyAndDiameter,
+} from "./cpp-model";
 
 export type LaborLineKey = ProposalLaborLineKey;
 export type LaborLineState = ProposalLaborLineEntity;
@@ -14,7 +19,7 @@ export interface RotationLineState {
   qty: number;
   frequencyWeeks: 4 | 6 | 8;
   rotationUnitPrice: number;
-  truckFee: 25 | 50;
+  truckFee: number;
 }
 
 export interface ProposalEngineInput {
@@ -68,6 +73,8 @@ export interface ComputeProposalResult {
   laborByLine: Partial<Record<LaborLineKey, number>>;
   maintenanceBreakdown: MaintenanceBreakdown;
   maintenanceMonthly: number;
+  guaranteedPlantsMonthly: number;
+  annualReplacementBudget: number;
   rotationLines: RotationBreakdownLine[];
   rotationsAnnual: number;
   commissionGross: number;
@@ -88,32 +95,20 @@ function freightPctForCategory(
   return config.materialFreightPct;
 }
 
-/** Parse inches from strings like '14"' or '(14")' at end of name. */
-export function parseSizeInchesFromText(text: string): number | null {
-  const m = text.match(/(\d+(?:\.\d+)?)\s*["'′″]/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : null;
-}
-
 export function installMinutesForInches(
   inches: number | null,
   config: PricingEngineConfig,
 ): number {
-  if (inches == null) return config.installMinutesDefault;
-  if (
-    inches >= config.largeBandMinInches &&
-    inches <= config.largeBandMaxInches
-  ) {
-    return config.installMinutesLargeBand;
-  }
-  if (
-    inches >= config.smallBandMinInches &&
-    inches <= config.smallBandMaxInches
-  ) {
-    return config.installMinutesSmallBand;
-  }
-  return config.installMinutesDefault;
+  const cpp = cppForDiameter(inches, {
+    cppByDiameterPoints: config.laborAuto.cppByDiameterPoints,
+    cppInterpolationMode: config.laborAuto.cppInterpolationMode,
+    missingDiameterFallbackCpp: config.laborAuto.missingDiameterFallbackCpp,
+    missingDiameterFallbackMinEmployees:
+      config.laborAuto.missingDiameterFallbackMinEmployees,
+    missingDiameterTwoPeopleThresholdQty:
+      config.laborAuto.missingDiameterTwoPeopleThresholdQty,
+  });
+  return config.laborAuto.targetClockMinutesPerPerson / cpp;
 }
 
 function overheadFactorForSum(
@@ -139,6 +134,21 @@ export function computeRotationMonthly(
   return { p1, p2, p3, monthly: p1 + p2 + p3 };
 }
 
+export function truckFeeForPlantCount(
+  plantCount: number,
+  config: PricingEngineConfig,
+): number {
+  const count = Math.max(1, Math.floor(plantCount || 0));
+  for (const r of config.rotationTruckFeeRanges) {
+    if (r.to == null) {
+      if (count >= r.from) return r.fee;
+      continue;
+    }
+    if (count >= r.from && count <= r.to) return r.fee;
+  }
+  return config.defaultRotationTruckFee ?? 50;
+}
+
 export function computeProposal(
   config: PricingEngineConfig,
   input: ProposalEngineInput,
@@ -151,6 +161,7 @@ export function computeProposal(
 
   let totalInstallMinutes = 0;
   let wholesalePlantsTotal = 0;
+  let guaranteedPlantsMonthly = 0;
 
   for (const item of input.items) {
     const isFreePot = item.category === "pot" && item.clientOwnsPot;
@@ -163,10 +174,32 @@ export function computeProposal(
       totals.plants.wholesale += effW;
       totals.plants.retail += retail;
       totals.plants.freight += freight;
+      if (item.plantingWithoutPot) {
+        totals.materials.retail +=
+          Math.max(0, Number(item.qty) || 0) * config.plantingWithoutPotFeePerPlant;
+      }
+      if (item.guaranteed) {
+        const retailBase = item.wholesaleCost * item.markup * item.qty;
+        const adjustedRetail =
+          retailBase + (retailBase * config.guaranteeAnnualAddOnPct) / 100;
+        guaranteedPlantsMonthly += adjustedRetail / 12;
+      }
       wholesalePlantsTotal += effW;
-      const inches = parseSizeInchesFromText(item.name);
-      const minEach = installMinutesForInches(inches, config);
-      totalInstallMinutes += minEach * item.qty;
+      const inches =
+        typeof item.sizeInches === "number" && Number.isFinite(item.sizeInches)
+          ? item.sizeInches
+          : parseSizeInchesFromText(item.name);
+      const peopleForItem = peopleNeededForQtyAndDiameter(item.qty, inches, {
+        cppByDiameterPoints: config.laborAuto.cppByDiameterPoints,
+        cppInterpolationMode: config.laborAuto.cppInterpolationMode,
+        missingDiameterFallbackCpp: config.laborAuto.missingDiameterFallbackCpp,
+        missingDiameterFallbackMinEmployees:
+          config.laborAuto.missingDiameterFallbackMinEmployees,
+        missingDiameterTwoPeopleThresholdQty:
+          config.laborAuto.missingDiameterTwoPeopleThresholdQty,
+      });
+      totalInstallMinutes +=
+        peopleForItem * config.laborAuto.targetClockMinutesPerPerson;
     } else if (item.category === "pot") {
       totals.pots.wholesale += effW;
       totals.pots.retail += retail;
@@ -250,7 +283,9 @@ export function computeProposal(
   const costBaseTotal = totalWholesale + totalFreight + laborCost;
   const priceToClientInitial =
     totalRetail + totalFreight + laborCost + commissionGross;
-  const maintenanceMonthly = guaranteedMonthlyMaintenance;
+  const maintenanceMonthly = guaranteedMonthlyMaintenance + guaranteedPlantsMonthly;
+  const annualReplacementBudget =
+    guaranteedPlantsMonthly * (config.replacementReservePct / 100) * 12;
   const priceToClientAnnual =
     priceToClientInitial +
     rotationsAnnual +
@@ -271,6 +306,8 @@ export function computeProposal(
     laborByLine,
     maintenanceBreakdown,
     maintenanceMonthly,
+    guaranteedPlantsMonthly,
+    annualReplacementBudget,
     rotationLines,
     rotationsAnnual,
     commissionGross,

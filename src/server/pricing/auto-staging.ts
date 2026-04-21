@@ -74,6 +74,8 @@ export interface AutoStagingForPlantInput {
   qty: number;
   potSizeInches: number | null | undefined;
   environment: PlantEnvironment;
+  /** Direct planting mode without pot purchase. */
+  plantingWithoutPot?: boolean;
 }
 
 export interface AutoStagingForPlantResult {
@@ -107,16 +109,19 @@ export function computeAutoStagingForPlant(
     config.laborAuto.complexityBands,
     input.potSizeInches ?? null,
   );
-  const recipe = findStagingRecipe(
-    config.stagingRecipes,
-    band.id,
-    input.environment,
-  );
+  const recipe = input.plantingWithoutPot
+    ? null
+    : findStagingRecipe(config.stagingRecipes, band.id, input.environment);
   const qty = Math.max(0, Number(input.qty) || 0);
 
   const components: AutoStagingComponentResult[] = [];
-  if (recipe && qty > 0) {
-    for (const c of recipe.components) {
+  const plantingWithoutPotComponents = input.plantingWithoutPot
+    ? buildPlantingWithoutPotComponents(band.id)
+    : null;
+  if ((recipe || plantingWithoutPotComponents) && qty > 0) {
+    const sourceComponents =
+      plantingWithoutPotComponents ?? recipe?.components ?? [];
+    for (const c of sourceComponents) {
       const mat = materials.get(c.materialSourceId);
       if (!mat) continue;
       const units = Math.max(0, Math.ceil(c.qtyPerPlant * qty));
@@ -141,7 +146,10 @@ export function computeAutoStagingForPlant(
     bandId: band.id,
     bandLabel: band.label,
     environment: input.environment,
-    recipeId: recipe?.id ?? null,
+    recipeId:
+      plantingWithoutPotComponents != null
+        ? `planting-without-pot-${band.id}-${input.environment}`
+        : recipe?.id ?? null,
     components,
     totalWholesaleCost: round2(
       components.reduce((s, c) => s + c.wholesaleCost, 0),
@@ -151,4 +159,25 @@ export function computeAutoStagingForPlant(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function buildPlantingWithoutPotComponents(
+  bandId: string,
+): Array<{ materialSourceId: number; qtyPerPlant: number; note?: string }> {
+  const isLarge = bandId === "large" || bandId === "xl";
+  const soilQty = bandId === "xl" ? 3 : bandId === "large" ? 2 : 1;
+  const barkQty = bandId === "xl" ? 2 : 1;
+  const out: Array<{ materialSourceId: number; qtyPerPlant: number; note?: string }> = [
+    { materialSourceId: 5, qtyPerPlant: soilQty, note: "Soil for direct planting" },
+    { materialSourceId: 6, qtyPerPlant: barkQty, note: "Pine bark for root support" },
+    { materialSourceId: 7, qtyPerPlant: 1, note: "Mulch top layer" },
+  ];
+  if (isLarge) {
+    out.push({
+      materialSourceId: 8,
+      qtyPerPlant: 1,
+      note: "Peanut shell drainage layer",
+    });
+  }
+  return out;
 }

@@ -9,6 +9,8 @@ export interface ClientLocation {
   address?: string;
   /** Optional per-location drive time override (one-way, in minutes). */
   driveTimeMinutes?: number;
+  /** Optional straight-line distance in km from Greenery HQ. */
+  driveDistanceKm?: number;
 }
 
 export interface Client {
@@ -21,6 +23,8 @@ export interface Client {
   isExistingCustomer?: boolean;
   /** Optional manual drive time (one-way, in minutes) from Greenery HQ to this client. */
   driveTimeMinutes?: number;
+  /** Optional straight-line distance in km from Greenery HQ. */
+  driveDistanceKm?: number;
   locations: ClientLocation[];
 }
 
@@ -68,8 +72,6 @@ export interface PotCatalogEntry {
   searchKey?: string;
 }
 
-export type AccessDifficulty = "easy" | "difficult";
-
 export type PlantEnvironment = "indoor" | "outdoor";
 
 export interface ProposalItemInput {
@@ -91,16 +93,12 @@ export interface ProposalItemInput {
   photos?: string[];
   /** Plant pot size in inches (snapshotted for labor calculations). */
   sizeInches?: number | null;
-  /** Access rating of the installation spot. Defaults to "easy". */
-  accessDifficulty?: AccessDifficulty;
-  /** Floors above ground level that must be climbed. */
-  stairsFloors?: number;
-  /** Extra distance from unload point to final point, in meters. */
-  extraDistanceMeters?: number;
-  /** Fragile/wet plant that needs careful handling. */
-  fragile?: boolean;
   /** Indoor (decorative double-pot) vs outdoor (planted substrate) — drives staging recipes. */
   environment?: PlantEnvironment;
+  /** Planting is done without purchasing a pot line for this plant. */
+  plantingWithoutPot?: boolean;
+  /** Plant is covered by guarantee rules. */
+  guaranteed?: boolean;
   /**
    * Staging only: slot key of the plant this material belongs to (`id` or `idx-n`),
    * same segment as in `staging-auto-<key>-<materialSourceId>`.
@@ -132,7 +130,7 @@ export interface ProposalRotation {
   frequencyName: string;
   frequencyWeeks: 4 | 6 | 8;
   rotationUnitPrice: number;
-  truckFee: 25 | 50;
+  truckFee: number;
   /** Present on summary API only. */
   monthlyBilled?: number;
   annualBilled?: number;
@@ -154,6 +152,13 @@ export interface ClientRequirementLine {
   plantCatalogId: string;
   area: string;
   qty: number;
+  environment: PlantEnvironment;
+  /** Existing client pot is reused; no pot sourcing required. */
+  clientHasPot: boolean;
+  /** Planting is performed without pot sourcing; applies planting surcharge. */
+  plantingWithoutPot: boolean;
+  /** Plant/group participates in guarantee pricing. */
+  guaranteed: boolean;
   potType: string;
   notes: string;
 }
@@ -227,6 +232,8 @@ export interface SummaryResponse {
     laborCost: number;
     laborByLine: Partial<Record<ProposalLaborLineKey, number>>;
     maintenanceMonthly: number;
+    guaranteedPlantsMonthly: number;
+    annualReplacementBudget: number;
     maintenanceBreakdown: {
       wholesalePlantsTotal: number;
       totalInstallMinutes: number;
@@ -290,6 +297,7 @@ export interface PurchaseOrderPrintRow {
   markup: number;
   freightRate: number;
   clientOwnsPot: boolean;
+  plantingWithoutPot?: boolean;
   requiresRotation: boolean;
   vendorName: string;
   vendorAddress: string;
