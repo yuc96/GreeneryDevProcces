@@ -344,7 +344,7 @@ function AdminPricingPageInner() {
               >
                 <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-                    Freight (wholesale × rate)
+                    Freight
                   </h2>
                   <div className="grid gap-4 sm:grid-cols-3">
                     <label className="text-sm">
@@ -403,7 +403,7 @@ function AdminPricingPageInner() {
 
                 <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-                    Markup defaults
+                    Markup & hourly rate (GUTS)
                   </h2>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="text-sm">
@@ -442,106 +442,14 @@ function AdminPricingPageInner() {
                         }
                       />
                     </label>
-                    <label className="text-sm">
-                      Planting without pot fee ($ per plant)
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.plantingWithoutPotFeePerPlant}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            plantingWithoutPotFeePerPlant: Math.max(
-                              0,
-                              Number(e.target.value) || 0,
-                            ),
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="text-sm">
-                      Guarantee annual add-on (%)
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.guaranteeAnnualAddOnPct}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            guaranteeAnnualAddOnPct: Math.max(
-                              0,
-                              Number(e.target.value) || 0,
-                            ),
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="text-sm">
-                      Annual replacement budget (%)
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.replacementReservePct}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            replacementReservePct: Math.max(
-                              0,
-                              Number(e.target.value) || 0,
-                            ),
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="text-sm">
-                      Weeks / month (4.33)
-                      <input
-                        type="number"
-                        step={0.01}
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.weeksPerMonth}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            weeksPerMonth: Number(e.target.value) || 0,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="text-sm">
-                      Plant wholesale monthly factor (0.65)
-                      <input
-                        type="number"
-                        step={0.01}
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.plantWholesaleMonthlyFactor}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            plantWholesaleMonthlyFactor:
-                              Number(e.target.value) || 0,
-                          }))
-                        }
-                      />
-                    </label>
                   </div>
                 </section>
 
                 <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-                    Rotations (GUTS §8)
+                    Rotations
                   </h2>
-                  <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                    P2 labor uses plants/hour capacity; orchids default to a
-                    higher rate. P3 is freight as a percent of rotation catalog
-                    retail (not truck tables).
-                  </p>
+                  <p className="mb-3 text-xs text-gray-500 dark:text-gray-400"></p>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="text-sm">
                       Plants per hour (non-orchid)
@@ -582,7 +490,7 @@ function AdminPricingPageInner() {
                       />
                     </label>
                     <label className="text-sm">
-                      Rotation labor hourly rate ($) — P2
+                      Rotation labor hourly rate
                       <input
                         type="number"
                         step={1}
@@ -601,7 +509,7 @@ function AdminPricingPageInner() {
                       />
                     </label>
                     <label className="text-sm">
-                      Rotation freight on catalog retail — P3 (
+                      Rotation freight on catalog retail (
                       {pct(cfg.rotationFreightPct)})
                       <input
                         type="number"
@@ -622,10 +530,7 @@ function AdminPricingPageInner() {
                       />
                     </label>
                     <div className="text-sm sm:col-span-2">
-                      <p className="mb-2 font-semibold">
-                        Truck fee ranges (legacy UI / proposals; not used in
-                        GUTS P1–P3)
-                      </p>
+                      <p className="mb-2 font-semibold">Truck fee ranges</p>
                       <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
                         <table className="w-full text-left text-sm">
                           <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 dark:bg-gray-900">

@@ -462,12 +462,6 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
                     {money.format(data.calculations.maintenanceMonthly)}
                   </td>
                 </tr>
-                <tr>
-                  <td>Annual replacement budget (internal reserve)</td>
-                  <td className="amount font-semibold text-green-900">
-                    {money.format(data.calculations.annualReplacementBudget)}
-                  </td>
-                </tr>
                 {data.rotations.map((r) => (
                   <tr key={r.id}>
                     <td>

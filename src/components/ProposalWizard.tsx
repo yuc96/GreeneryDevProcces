@@ -5444,24 +5444,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         {money.format(summary.calculations.maintenanceMonthly)}
                       </dd>
                     </div>
-                    <div className="flex justify-between gap-4 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900">
-                      <dt className="text-gray-500">Guaranteed plants / mo</dt>
-                      <dd className="tabular-nums font-semibold">
-                        {money.format(
-                          summary.calculations.guaranteedPlantsMonthly,
-                        )}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-4 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900">
-                      <dt className="text-gray-500">
-                        Annual replacement budget
-                      </dt>
-                      <dd className="tabular-nums font-semibold">
-                        {money.format(
-                          summary.calculations.annualReplacementBudget,
-                        )}
-                      </dd>
-                    </div>
                     <div className="flex justify-between gap-4 rounded-lg bg-emerald-50 px-3 py-2 sm:col-span-2 dark:bg-emerald-950/30">
                       <dt className="font-bold text-[#2b7041] dark:text-emerald-400">
                         Total

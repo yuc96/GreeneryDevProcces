@@ -254,8 +254,6 @@ export interface SummaryResponse {
     laborCost: number;
     laborByLine: Partial<Record<ProposalLaborLineKey, number>>;
     maintenanceMonthly: number;
-    guaranteedPlantsMonthly: number;
-    annualReplacementBudget: number;
     maintenanceBreakdown: {
       wholesalePlantsTotal: number;
       totalInstallMinutes: number;

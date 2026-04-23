@@ -76,9 +76,8 @@ export interface ComputeProposalResult {
   laborCost: number;
   laborByLine: Partial<Record<LaborLineKey, number>>;
   maintenanceBreakdown: MaintenanceBreakdown;
+  /** MMG/MM blend only (GUTS maintenance); no separate guaranteed-plant add-on. */
   maintenanceMonthly: number;
-  guaranteedPlantsMonthly: number;
-  annualReplacementBudget: number;
   rotationLines: RotationBreakdownLine[];
   rotationsAnnual: number;
   commissionGross: number;
@@ -212,7 +211,6 @@ export function computeProposal(
   let totalInstallMinutes = 0;
   let wholesalePlantsTotal = 0;
   let wholesaleGuaranteedPlants = 0;
-  let guaranteedPlantsMonthly = 0;
 
   for (const item of input.items) {
     const isFreePot = item.category === "pot" && item.clientOwnsPot;
@@ -231,10 +229,6 @@ export function computeProposal(
       }
       if (item.guaranteed) {
         wholesaleGuaranteedPlants += effW;
-        const retailBase = item.wholesaleCost * item.markup * item.qty;
-        const adjustedRetail =
-          retailBase + (retailBase * config.guaranteeAnnualAddOnPct) / 100;
-        guaranteedPlantsMonthly += adjustedRetail / 12;
       }
       wholesalePlantsTotal += effW;
       const inches =
@@ -332,13 +326,13 @@ export function computeProposal(
   const costBaseTotal = totalWholesale + totalFreight + laborCost;
   const priceToClientInitial =
     totalRetail + totalFreight + laborCost + commissionGross;
-  const maintenanceMonthly = guaranteedMonthlyMaintenance + guaranteedPlantsMonthly;
-  const annualReplacementBudget =
-    guaranteedPlantsMonthly * (config.replacementReservePct / 100) * 12;
+  const maintenanceMonthly = guaranteedMonthlyMaintenance;
   const priceToClientAnnual =
     priceToClientInitial +
     rotationsAnnual +
     maintenanceMonthly * 12;
+  // `maintenanceAnnualCostFraction` is an internal dial (not in GUTS doc) to
+  // approximate maintenance COGS in margin; doc-aligned revenue is §10 above.
   const grossMargin =
     priceToClientAnnual -
     costBaseTotal -
@@ -355,8 +349,6 @@ export function computeProposal(
     laborByLine,
     maintenanceBreakdown,
     maintenanceMonthly,
-    guaranteedPlantsMonthly,
-    annualReplacementBudget,
     rotationLines,
     rotationsAnnual,
     commissionGross,

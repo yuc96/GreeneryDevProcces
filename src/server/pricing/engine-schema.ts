@@ -225,16 +225,12 @@ export const truckFeeRangeSchema = z.object({
 export type TruckFeeRange = z.infer<typeof truckFeeRangeSchema>;
 
 export const pricingEngineConfigSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   plantFreightPct: z.number().min(0).max(1),
   potFreightPct: z.number().min(0).max(1),
   materialFreightPct: z.number().min(0).max(1),
   /** Additional charge per plant when planting is done without pot sourcing. */
   plantingWithoutPotFeePerPlant: z.number().min(0),
-  /** Annual add-on percentage used for guaranteed plants. */
-  guaranteeAnnualAddOnPct: z.number().min(0),
-  /** Internal reserve percentage applied over guaranteed monthly total. */
-  replacementReservePct: z.number().min(0),
   markupMin: z.number(),
   markupMax: z.number(),
   markupStep: z.number(),
@@ -350,13 +346,11 @@ export type PricingEngineConfig = z.infer<typeof pricingEngineConfigSchema>;
 export type RotationCatalogEntry = z.infer<typeof rotationCatalogEntrySchema>;
 
 export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   plantFreightPct: 0.25,
   potFreightPct: 0.25,
   materialFreightPct: 0.25,
   plantingWithoutPotFeePerPlant: 12,
-  guaranteeAnnualAddOnPct: 15,
-  replacementReservePct: 5,
   markupMin: 1.5,
   markupMax: 3.0,
   markupStep: 0.5,
@@ -601,13 +595,27 @@ export function parsePricingEngineConfig(raw: unknown): PricingEngineConfig {
   return parsed.data;
 }
 
+/** Keys from schema v1; ignored when merging persisted JSON/Mongo. */
+const LEGACY_PRICING_ENGINE_KEYS = [
+  "guaranteeAnnualAddOnPct",
+  "replacementReservePct",
+] as const;
+
+function stripLegacyPricingEngineKeys(
+  partial: Record<string, unknown>,
+): Record<string, unknown> {
+  const o = { ...partial };
+  for (const k of LEGACY_PRICING_ENGINE_KEYS) delete o[k];
+  return o;
+}
+
 export function mergeWithPricingDefaults(
   partial: unknown,
 ): PricingEngineConfig {
   if (!partial || typeof partial !== "object") {
     return DEFAULT_PRICING_ENGINE_CONFIG;
   }
-  const ext = partial as Record<string, unknown>;
+  const ext = stripLegacyPricingEngineKeys(partial as Record<string, unknown>);
   const plantingFeeRaw = ext.plantingWithoutPotFeePerPlant;
   const plantingWithoutPotFeePerPlant =
     typeof plantingFeeRaw === "number" &&
@@ -615,20 +623,6 @@ export function mergeWithPricingDefaults(
     plantingFeeRaw >= 0
       ? plantingFeeRaw
       : DEFAULT_PRICING_ENGINE_CONFIG.plantingWithoutPotFeePerPlant;
-  const guaranteeRaw = ext.guaranteeAnnualAddOnPct;
-  const guaranteeAnnualAddOnPct =
-    typeof guaranteeRaw === "number" &&
-    Number.isFinite(guaranteeRaw) &&
-    guaranteeRaw >= 0
-      ? guaranteeRaw
-      : DEFAULT_PRICING_ENGINE_CONFIG.guaranteeAnnualAddOnPct;
-  const replacementRaw = ext.replacementReservePct;
-  const replacementReservePct =
-    typeof replacementRaw === "number" &&
-    Number.isFinite(replacementRaw) &&
-    replacementRaw >= 0
-      ? replacementRaw
-      : DEFAULT_PRICING_ENGINE_CONFIG.replacementReservePct;
   const rotationTruckFeeOptionsRaw = ext.rotationTruckFeeOptions;
   const rotationTruckFeeOptions =
     Array.isArray(rotationTruckFeeOptionsRaw) &&
@@ -720,11 +714,9 @@ export function mergeWithPricingDefaults(
       : DEFAULT_PRICING_ENGINE_CONFIG.rotationFreightPct;
   const merged = {
     ...DEFAULT_PRICING_ENGINE_CONFIG,
-    ...partial,
+    ...ext,
     schemaVersion: DEFAULT_PRICING_ENGINE_CONFIG.schemaVersion,
     plantingWithoutPotFeePerPlant,
-    guaranteeAnnualAddOnPct,
-    replacementReservePct,
     rotationTruckFeeOptions,
     defaultRotationTruckFee,
     rotationFrequencyWeeksOptions,

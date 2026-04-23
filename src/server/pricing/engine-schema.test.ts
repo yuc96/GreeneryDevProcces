@@ -26,7 +26,7 @@ describe("mergeWithPricingDefaults", () => {
       },
     });
 
-    expect(merged.schemaVersion).toBe(1);
+    expect(merged.schemaVersion).toBe(2);
     expect(merged.defaultRotationTruckFee).toBe(
       DEFAULT_PRICING_ENGINE_CONFIG.defaultRotationTruckFee,
     );
@@ -55,5 +55,20 @@ describe("mergeWithPricingDefaults", () => {
     expect(merged.laborAuto.defaultCleanupHours).toBeUndefined();
     expect(merged.laborAuto.crewSmall).toBeUndefined();
     expect(merged.laborAuto.crewLarge).toBeUndefined();
+  });
+
+  it("drops v1 guarantee add-on / reserve keys and upgrades schemaVersion from 1", () => {
+    const merged = mergeWithPricingDefaults({
+      schemaVersion: 1,
+      guaranteeAnnualAddOnPct: 99,
+      replacementReservePct: 7,
+      hourlyRate: 40,
+    } as Record<string, unknown>);
+    expect(merged.schemaVersion).toBe(2);
+    expect(merged.hourlyRate).toBe(40);
+    expect(
+      "guaranteeAnnualAddOnPct" in merged ||
+        "replacementReservePct" in merged,
+    ).toBe(false);
   });
 });

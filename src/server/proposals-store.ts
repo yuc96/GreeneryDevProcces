@@ -317,8 +317,6 @@ function computeSummary(p: ProposalEntity) {
     laborCost: eng.laborCost,
     laborByLine: eng.laborByLine,
     maintenanceMonthly: eng.maintenanceMonthly,
-    guaranteedPlantsMonthly: eng.guaranteedPlantsMonthly,
-    annualReplacementBudget: eng.annualReplacementBudget,
     maintenanceBreakdown: eng.maintenanceBreakdown,
     rotationsAnnual: eng.rotationsAnnual,
     rotationLines: eng.rotationLines,
