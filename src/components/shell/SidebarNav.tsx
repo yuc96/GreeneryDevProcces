@@ -126,7 +126,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
 
   return (
     <nav
-      className={`relative flex h-full flex-col border-r border-gray-200 bg-white dark:border-slate-800/80 dark:bg-[#0c1222] ${
+      className={`no-print relative flex h-full flex-col border-r border-gray-200 bg-white dark:border-slate-800/80 dark:bg-[#0c1222] ${
         collapsed ? "w-[72px]" : "w-64"
       }`}
     >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
 import type { SummaryResponse } from "@/lib/types";
 
@@ -162,6 +162,71 @@ const TERMS_PARAGRAPHS = [
 ];
 
 export function ClientProposalBody({ data }: { data: SummaryResponse }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Flex layouts (AppShell, wizard) use overflow + flex-1 + min-h-0 so the
+   * screen scrolls inside main; browsers often keep that clip for print/PDF.
+   * Before print, relax overflow/size on ancestors so the full document paginates.
+   */
+  useEffect(() => {
+    const stylePatches = new Map<HTMLElement, Set<string>>();
+
+    function patchImportant(el: HTMLElement, prop: string, value: string) {
+      if (!stylePatches.has(el)) stylePatches.set(el, new Set());
+      stylePatches.get(el)!.add(prop);
+      el.style.setProperty(prop, value, "important");
+    }
+
+    function restoreAfterPrint() {
+      stylePatches.forEach((props, el) => {
+        props.forEach((p) => el.style.removeProperty(p));
+      });
+      stylePatches.clear();
+    }
+
+    function releaseForPrint() {
+      restoreAfterPrint();
+      let cur: HTMLElement | null = rootRef.current?.parentElement ?? null;
+      while (cur && cur !== document.documentElement) {
+        patchImportant(cur, "overflow", "visible");
+        patchImportant(cur, "max-height", "none");
+        const tag = cur.tagName;
+        const cl = typeof cur.className === "string" ? cur.className : "";
+        const flexish =
+          tag === "MAIN" ||
+          cl.includes("proposal-wizard-root") ||
+          cl.includes("proposal-embed-shell") ||
+          cl.includes("app-shell") ||
+          /\bflex-1\b/.test(cl);
+        if (flexish) {
+          patchImportant(cur, "height", "auto");
+          patchImportant(cur, "flex", "none");
+          patchImportant(cur, "min-height", "0");
+        }
+        cur = cur.parentElement;
+      }
+      patchImportant(document.body, "overflow", "visible");
+      patchImportant(document.documentElement, "overflow", "visible");
+    }
+
+    const mq = window.matchMedia("print");
+    const onMq = () => {
+      if (mq.matches) releaseForPrint();
+      else restoreAfterPrint();
+    };
+
+    window.addEventListener("beforeprint", releaseForPrint);
+    window.addEventListener("afterprint", restoreAfterPrint);
+    mq.addEventListener("change", onMq);
+    return () => {
+      window.removeEventListener("beforeprint", releaseForPrint);
+      window.removeEventListener("afterprint", restoreAfterPrint);
+      mq.removeEventListener("change", onMq);
+      restoreAfterPrint();
+    };
+  }, []);
+
   const plants = useMemo(
     () => data.items.filter((i) => i.category === "plant"),
     [data.items],
@@ -190,7 +255,11 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
   const jobLocation = data.location?.name || "—";
 
   return (
-    <div className="proposal-html-root">
+    <div
+      ref={rootRef}
+      className="proposal-html-root"
+      data-proposal-doc="1"
+    >
       <div className="page">
         <div className="proposal-print-main">
           <div className="header-border flex flex-wrap items-start justify-between gap-4">
@@ -350,34 +419,12 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
             </>
           ) : null}
 
-          <div className="section-title mb-2">Proposed Plants &amp; Containers</div>
-          <div className="plant-gallery-wrap w-full">
-            <p className="mb-2 text-[10px] leading-snug text-gray-500">
-              {totalPlantPhotos > 0
-                ? "Photos below are the reference images attached to this proposal in the builder (Plant Photos step). Labels match the schedule."
-                : "No photos were attached for plant lines in this proposal. Each block shows the plant name and schedule details only. Add images in the proposal wizard on the Plant Photos step."}
-            </p>
-
-            <div
-              className="plant-photo-groups-stack plant-photo-groups-stack--reference"
-              aria-label="Plant reference photos"
-            >
-              {plants.length === 0 ? (
-                <p className="text-center text-xs text-gray-400">
-                  No plants to preview.
-                </p>
-              ) : (
-                plants.map((row) => (
-                  <PlantPhotoGroup
-                    key={row.id}
-                    row={row}
-                    includeAreaInMeta
-                  />
-                ))
-              )}
-            </div>
-
-          </div>
+          <div className="section-title mb-2">Reference imagery</div>
+          <p className="mb-2 text-[10px] leading-snug text-gray-500">
+            {totalPlantPhotos > 0
+              ? "Site and reference photos for each plant line are included in Appendix A (Anexo A) at the end of this document. Labels match the Interior Plant Schedule."
+              : "No photos were attached for plant lines in this proposal. Add images in the proposal wizard on the Plant Photos step if reference photos are required."}
+          </p>
 
           <div className="client-breakdown mt-8 w-full">
             <table className="breakdown-table purchase-summary" aria-label="Purchase summary">
@@ -494,6 +541,45 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
             </p>
           </div>
         </div>
+
+        <section
+          className="proposal-appendix"
+          aria-label="Appendix A reference photos"
+        >
+          <div className="proposal-appendix-header">
+            <h2 className="proposal-appendix-title">
+              Appendix A — Reference photos
+            </h2>
+            <p className="proposal-appendix-subtitle">
+              Anexo A — Fotografías de referencia
+            </p>
+            <p className="proposal-appendix-intro">
+              {totalPlantPhotos > 0
+                ? "Images attached in the proposal builder (Plant Photos step), grouped by plant line. Same labels as the Interior Plant Schedule."
+                : "No reference photos were attached for this proposal."}
+            </p>
+          </div>
+          <div className="plant-gallery-wrap proposal-appendix-gallery w-full">
+            <div
+              className="plant-photo-groups-stack plant-photo-groups-stack--reference"
+              aria-label="Plant reference photos"
+            >
+              {plants.length === 0 ? (
+                <p className="text-center text-xs text-gray-400">
+                  No plants in schedule.
+                </p>
+              ) : (
+                plants.map((row) => (
+                  <PlantPhotoGroup
+                    key={row.id}
+                    row={row}
+                    includeAreaInMeta
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import {
   Package,
   Pencil,
   Phone,
+  Printer,
   Plus,
   Search,
   Send,
@@ -3059,7 +3060,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div
-      className={`flex flex-col overflow-hidden bg-[#f6f7f6] text-gray-900 dark:bg-gray-950 dark:text-gray-100 ${
+      className={`proposal-wizard-root flex flex-col overflow-hidden bg-[#f6f7f6] text-gray-900 print:h-auto print:min-h-0 print:overflow-visible print:bg-white dark:bg-gray-950 dark:text-gray-100 dark:print:bg-white ${
         embedded ? "h-full min-h-0" : "h-screen"
       }`}
     >
@@ -3133,7 +3134,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         </div>
       </header>
 
-      <main className="no-scrollbar mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-y-auto px-4 py-8 pb-28 print:px-0 print:py-0 md:px-6">
+      <main className="no-scrollbar mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-y-auto px-4 py-8 pb-28 print:h-auto print:max-h-none print:overflow-visible print:px-0 print:py-0 print:pb-0 md:px-6">
         {error ? (
           <div
             className="no-print mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
@@ -5318,7 +5319,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         : "border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-950"
                     }`}
                   >
-                    Client (PDF)
+                    Client PDF
                   </button>
                   <button
                     type="button"
@@ -5334,27 +5335,29 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   {proposalPreview === "client" && summary ? (
                     <PrintBar />
                   ) : null}
-                  {proposalId ? (
+                  {proposalPreview === "client" && proposalId ? (
                     <Link
                       href={`/proposal/${proposalId}/client`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-[#2b7041]/40 hover:bg-emerald-50/80 hover:text-[#2b7041] dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
+                      aria-label="Open client proposal preview in a new tab"
+                      title="Preview in new tab"
                     >
-                      Open preview in new tab
+                      <Eye className="h-[18px] w-[18px] shrink-0" aria-hidden />
                     </Link>
                   ) : null}
                 </div>
               </div>
 
               {!summary ? (
-                <p className="text-sm text-gray-500">Loading preview…</p>
+                <p className="no-print text-sm text-gray-500">Loading preview…</p>
               ) : proposalPreview === "client" ? (
                 <div className="proposal-embed-shell border border-gray-200 bg-[#f3f4f6] dark:border-gray-700 dark:bg-gray-950">
                   <ClientProposalBody data={summary} />
                 </div>
               ) : (
-                <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 text-sm dark:border-gray-700 dark:bg-gray-950/80">
+                <div className="no-print space-y-4 rounded-xl border border-gray-200 bg-white p-6 text-sm dark:border-gray-700 dark:bg-gray-950/80">
                   <p className="font-semibold text-gray-900 dark:text-white">
                     Internal summary (GUTS)
                   </p>
@@ -5611,10 +5614,15 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                               href={`/proposal/${proposalId}/po/${po.id}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#2b7041]/40 bg-emerald-50/80 px-2.5 py-1.5 text-[11px] font-bold text-[#2b7041] hover:bg-emerald-100/90 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
+                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#2b7041]/40 bg-emerald-50/80 text-[#2b7041] shadow-sm transition hover:bg-emerald-100/90 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
+                              aria-label={`Open PO-${po.sequence} to print`}
+                              title="Print purchase order"
                             >
-                              <FileText className="h-3.5 w-3.5 shrink-0" />
-                              View / print PDF
+                              <Printer
+                                className="h-4 w-4 shrink-0"
+                                strokeWidth={2}
+                                aria-hidden
+                              />
                             </Link>
                           ) : null}
                         </div>
@@ -5624,20 +5632,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 </div>
               ) : null}
 
-              {proposalId ? (
-                <p className="text-center text-xs text-gray-500">
-                  <Link
-                    href={`/proposal/${proposalId}/client`}
-                    className="inline-flex items-center gap-1.5 font-semibold text-[#2b7041] underline dark:text-emerald-400"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Open client preview in new tab"
-                  >
-                    <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    Preview
-                  </Link>
-                </p>
-              ) : null}
             </div>
           ) : null}
         </div>

@@ -25,10 +25,29 @@ body {
 }
 
 @media print {
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
   .no-print {
     display: none !important;
   }
-  body {
+  .app-shell {
     background: #fff !important;
+  }
+  /* Backup when JS beforeprint has not run yet — flex shells clip multi-page PDFs */
+  html:has([data-proposal-doc="1"]) .app-shell,
+  html:has([data-proposal-doc="1"]) .app-shell > div,
+  html:has([data-proposal-doc="1"]) .app-shell > div > div,
+  html:has([data-proposal-doc="1"]) .app-shell main,
+  html:has([data-proposal-doc="1"]) .proposal-wizard-root,
+  html:has([data-proposal-doc="1"]) .proposal-wizard-root > main {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    flex: none !important;
+    min-height: unset !important;
   }
 }

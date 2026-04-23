@@ -12,11 +12,13 @@
 .proposal-html-root .page {
   background: white;
   width: 210mm;
+  max-width: 100%;
   min-height: 297mm;
   margin: 20px auto;
   padding: 40px;
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
   position: relative;
+  overflow: visible;
 }
 
 .proposal-html-root .header-border {
@@ -391,6 +393,44 @@
   width: 100%;
 }
 
+/* Appendix: all reference photos at end of PDF (after signatures) */
+.proposal-html-root .proposal-appendix {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 2px solid var(--primary-green);
+}
+
+.proposal-html-root .proposal-appendix-header {
+  margin-bottom: 1rem;
+}
+
+.proposal-html-root .proposal-appendix-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--primary-green);
+}
+
+.proposal-html-root .proposal-appendix-subtitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.proposal-html-root .proposal-appendix-intro {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.proposal-html-root .proposal-appendix-gallery {
+  margin-top: 0.5rem;
+}
+
 /* Screen-only shell around embedded proposal in the wizard */
 .proposal-embed-shell {
   max-height: min(70vh, 900px);
@@ -399,6 +439,11 @@
 }
 
 @media print {
+  @page {
+    margin: 10mm;
+    size: auto;
+  }
+
   .proposal-embed-shell {
     max-height: none !important;
     overflow: visible !important;
@@ -413,13 +458,36 @@
   }
   .proposal-html-root {
     background: #fff !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
   }
   .proposal-html-root .page {
-    margin: 0 auto !important;
+    margin: 0 !important;
     box-shadow: none !important;
-    width: 210mm !important;
-    min-height: auto !important;
-    padding: 8mm 10mm !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    position: static !important;
+    overflow: visible !important;
+    page-break-after: auto;
+    break-after: auto;
+  }
+  .proposal-html-root .proposal-print-main,
+  .proposal-html-root .proposal-print-footer,
+  .proposal-html-root .proposal-appendix {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  .proposal-html-root .proposal-appendix {
+    page-break-before: always;
+    break-before: page;
+    margin-top: 0 !important;
+    padding-top: 8mm !important;
+    border-top: 2px solid var(--primary-green) !important;
   }
   .no-print {
     display: none !important;
@@ -427,9 +495,15 @@
   thead {
     display: table-header-group;
   }
+  /* Allow long proposals to paginate; avoid only small cells */
   .proposal-html-root .plant-photo-group {
-    break-inside: avoid-page;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  .proposal-html-root .plant-photo-grid-cell {
+    break-inside: avoid;
     page-break-inside: avoid;
+    box-shadow: none !important;
   }
   .proposal-html-root .plant-photo-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -437,9 +511,6 @@
   }
   .proposal-html-root .plant-photo-grid--single {
     grid-template-columns: minmax(0, 180px) !important;
-  }
-  .proposal-html-root .plant-photo-grid-cell {
-    box-shadow: none !important;
   }
   .proposal-html-root .plant-photo-grid-cell:hover {
     box-shadow: none !important;

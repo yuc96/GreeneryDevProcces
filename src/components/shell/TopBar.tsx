@@ -16,7 +16,7 @@ export function TopBar({
   onToggleDark: () => void;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 text-gray-700 dark:border-slate-800/80 dark:bg-[#0b0f19] dark:text-slate-200">
+    <header className="no-print flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 text-gray-700 dark:border-slate-800/80 dark:bg-[#0b0f19] dark:text-slate-200">
       <button
         type="button"
         onClick={onToggleSidebar}

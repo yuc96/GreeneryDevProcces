@@ -41,17 +41,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [dark]);
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-gray-100 text-gray-900 dark:bg-[#0b0f19] dark:text-slate-100">
-      <div className="flex min-h-0 flex-1">
+    <div className="app-shell flex h-screen min-h-0 flex-col bg-gray-100 text-gray-900 print:h-auto print:min-h-0 dark:bg-[#0b0f19] dark:text-slate-100">
+      <div className="flex min-h-0 flex-1 print:h-auto print:min-h-0">
         <SidebarNav collapsed={sidebarCollapsed} />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col print:h-auto print:min-h-0">
           <TopBar
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
             dark={dark}
             onToggleDark={() => setDark((d) => !d)}
           />
-          <main className="min-h-0 flex-1 overflow-y-auto bg-gray-100 no-scrollbar dark:bg-[#0b0f19]">
+          <main className="min-h-0 flex-1 overflow-y-auto bg-gray-100 no-scrollbar print:h-auto print:min-h-0 print:overflow-visible print:bg-white dark:bg-[#0b0f19] dark:print:bg-white">
             {children}
           </main>
         </div>
