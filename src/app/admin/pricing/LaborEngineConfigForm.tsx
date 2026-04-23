@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiJson } from "@/lib/api";
 import { toErrorMessage } from "@/lib/to-error-message";
-import type { LaborEngineConfig, LaborPlantSize } from "@/server/pricing/labor-engine-schema";
+import type {
+  LaborEngineConfig,
+  LaborPlantSize,
+} from "@/server/pricing/labor-engine-schema";
 import { DEFAULT_LABOR_ENGINE_CONFIG } from "@/server/pricing/labor-engine-schema";
 
 const POT_SIZES: readonly LaborPlantSize[] = [
@@ -29,8 +32,18 @@ const SIZE_LABEL: Record<LaborPlantSize, string> = {
   [`24"`]: '24"',
 };
 
-/** Sizes that can force 2 people when any plant of that size is on the job. */
-const LARGE_PRESENCE_SIZES = [`17"`, `21"`, `24"`] as const;
+/**
+ * `determinePeopleForInstall` uses strict `count > threshold` → 2 installers.
+ */
+function exclusiveThresholdHint(threshold: number): string {
+  if (threshold <= 0) {
+    return "With 0, any matching plants (one or more) already mean two installers.";
+  }
+  if (threshold >= 500) {
+    return "Very high cutoffs rarely trigger this rule (e.g. 999 ≈ off for normal proposals).";
+  }
+  return `One installer is enough up to ${threshold} plants; at ${threshold + 1}+ plan for two installers.`;
+}
 
 const controlClass =
   "w-full max-w-[280px] rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none ring-[#2b7041]/0 transition focus:border-[#2b7041] focus:ring-2 focus:ring-[#2b7041]/25 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-100 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/25";
@@ -47,12 +60,18 @@ function FieldRow({
   return (
     <div className="grid grid-cols-1 items-start gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center sm:gap-x-8">
       <div className="min-w-0 pt-0.5 sm:pt-0">
-        <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{label}</div>
+        <div className="text-sm font-medium text-gray-800 dark:text-gray-100">
+          {label}
+        </div>
         {description ? (
-          <p className="mt-1 text-xs leading-snug text-gray-500 dark:text-gray-400">{description}</p>
+          <p className="mt-1 text-xs leading-snug text-gray-500 dark:text-gray-400">
+            {description}
+          </p>
         ) : null}
       </div>
-      <div className="w-full sm:max-w-[280px] sm:justify-self-end">{children}</div>
+      <div className="w-full sm:max-w-[280px] sm:justify-self-end">
+        {children}
+      </div>
     </div>
   );
 }
@@ -69,18 +88,26 @@ function SectionCard({
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <div className="border-b border-gray-100 bg-gray-50/90 px-5 py-4 dark:border-gray-700 dark:bg-gray-800/50">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h3>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+          {title}
+        </h3>
         {subtitle ? (
-          <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">{subtitle}</p>
+          <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+            {subtitle}
+          </p>
         ) : null}
       </div>
-      <div className="divide-y divide-gray-100 px-5 dark:divide-gray-700/80">{children}</div>
+      <div className="divide-y divide-gray-100 px-5 dark:divide-gray-700/80">
+        {children}
+      </div>
     </section>
   );
 }
 
 export function LaborEngineConfigForm() {
-  const [labor, setLabor] = useState<LaborEngineConfig>(DEFAULT_LABOR_ENGINE_CONFIG);
+  const [labor, setLabor] = useState<LaborEngineConfig>(
+    DEFAULT_LABOR_ENGINE_CONFIG,
+  );
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -114,34 +141,24 @@ export function LaborEngineConfigForm() {
     }
   }, [labor]);
 
-  const setInstallMinutes = useCallback((size: LaborPlantSize, value: number) => {
-    setLabor((c) => ({
-      ...c,
-      INSTALL_MINUTES_PER_PLANT: {
-        ...c.INSTALL_MINUTES_PER_PLANT,
-        [size]: Math.max(0, value),
-      },
-    }));
-  }, []);
-
-  const toggleLargeSize = useCallback((size: LaborPlantSize, on: boolean) => {
-    setLabor((c) => {
-      const set = new Set(c.PEOPLE_RULES.largeSizesRequireTwo);
-      if (on) set.add(size);
-      else set.delete(size);
-      return {
+  const setInstallMinutes = useCallback(
+    (size: LaborPlantSize, value: number) => {
+      setLabor((c) => ({
         ...c,
-        PEOPLE_RULES: {
-          ...c.PEOPLE_RULES,
-          largeSizesRequireTwo: Array.from(set) as LaborPlantSize[],
+        INSTALL_MINUTES_PER_PLANT: {
+          ...c.INSTALL_MINUTES_PER_PLANT,
+          [size]: Math.max(0, value),
         },
-      };
-    });
-  }, []);
+      }));
+    },
+    [],
+  );
 
   if (!loaded) {
     return (
-      <p className="text-sm text-gray-500 dark:text-gray-400">Loading labor settings…</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        Loading labor settings…
+      </p>
     );
   }
 
@@ -153,14 +170,9 @@ export function LaborEngineConfigForm() {
         </p>
       ) : null}
 
-      <p className="text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-        Only the settings below are editable here. PWU tables, productivity, billing increments, and Maps cache use
-        built-in defaults in code—change those in the repository if engineering needs to tune the model.
-      </p>
-
       <SectionCard
         title="General & drive"
-        subtitle="Used when Google Directions is unavailable and for the requirements preview before plant sizes are known."
+        subtitle="Used when Google Directions is unavailable (fallback drive hours each way)."
       >
         <FieldRow
           label="Drive time if Maps fails"
@@ -175,121 +187,132 @@ export function LaborEngineConfigForm() {
             onChange={(e) =>
               setLabor((c) => ({
                 ...c,
-                DRIVE_TIME_FALLBACK_HOURS: Math.max(0.1, Number(e.target.value) || 0.75),
+                DRIVE_TIME_FALLBACK_HOURS: Math.max(
+                  0.1,
+                  Number(e.target.value) || 0.75,
+                ),
               }))
             }
           />
-        </FieldRow>
-        <FieldRow
-          label="Assumed pot size when diameter is unknown"
-          description="Used on the Requirements step when no catalog size is available yet."
-        >
-          <select
-            className={controlClass}
-            value={labor.simplifiedFallbackPlantSize}
-            onChange={(e) =>
-              setLabor((c) => ({
-                ...c,
-                simplifiedFallbackPlantSize: e.target.value as LaborPlantSize,
-              }))
-            }
-          >
-            {POT_SIZES.map((s) => (
-              <option key={s} value={s}>
-                {SIZE_LABEL[s]}
-              </option>
-            ))}
-          </select>
         </FieldRow>
       </SectionCard>
 
       <SectionCard
         title="When to send 2 installers"
-        subtitle="Rules are evaluated in order: large pot sizes first, then how many plants of each size class are on the proposal."
+        subtitle="Very large pots (e.g. 17″, 21″, 24″) can still force two installers from your saved labor file—they are not edited on this screen. Then these cutoffs are checked in order: (1) 14″ totals, (2) 12″ totals, (3) combined 6″+8″. If none match, one installer is enough."
       >
         <div className="py-4">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            Large pots on the job (any quantity → 2 people)
+          <p className="mb-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+            Count cutoffs (same-size batches)
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8 sm:gap-y-2">
-            {LARGE_PRESENCE_SIZES.map((size) => (
-              <label
-                key={size}
-                className="flex cursor-pointer items-center gap-3 text-sm text-gray-800 dark:text-gray-100"
-              >
-                <input
-                  type="checkbox"
-                  checked={labor.PEOPLE_RULES.largeSizesRequireTwo.includes(size)}
-                  onChange={(e) => toggleLargeSize(size, e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-[#2b7041] focus:ring-[#2b7041]/30 dark:border-gray-600 dark:bg-gray-900 dark:text-emerald-600"
-                />
-                <span className="font-medium">{SIZE_LABEL[size]}</span>
-              </label>
-            ))}
+          <div className="mb-4 rounded-lg border border-sky-200/80 bg-sky-50/90 px-3 py-2.5 text-xs leading-relaxed text-sky-950 dark:border-sky-900/45 dark:bg-sky-950/35 dark:text-sky-100">
+            <p className="font-semibold text-sky-900 dark:text-sky-200">
+              Same comparison for every row
+            </p>
+            <p className="mt-1">
+              Each number is a <strong>cutoff</strong> (not a minimum crew size).
+              The engine asks: is the counted quantity <strong>strictly greater</strong>{" "}
+              than this number? If <strong>yes</strong> → plan <strong>two</strong>{" "}
+              installers; if <strong>no</strong> → this row passes and the next
+              rule is checked.
+            </p>
           </div>
         </div>
         <FieldRow
-          label="14″ plants — use 2 people if total count is more than…"
-          description="Count only 14″ plants on the proposal. Leave high (e.g. 999) to effectively disable."
+          label="14″ plants only"
+          description="Count is the sum of quantities for 14″ pots. Other sizes do not count here."
         >
-          <input
-            type="number"
-            min={0}
-            step={1}
-            className={controlClass}
-            value={labor.PEOPLE_RULES.threshold14Inch}
-            onChange={(e) =>
-              setLabor((c) => ({
-                ...c,
-                PEOPLE_RULES: {
-                  ...c.PEOPLE_RULES,
-                  threshold14Inch: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-                },
-              }))
-            }
-          />
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+              Two installers when 14″ total is greater than…
+              <input
+                type="number"
+                min={0}
+                step={1}
+                className={`${controlClass} mt-1.5`}
+                value={labor.PEOPLE_RULES.threshold14Inch}
+                onChange={(e) =>
+                  setLabor((c) => ({
+                    ...c,
+                    PEOPLE_RULES: {
+                      ...c.PEOPLE_RULES,
+                      threshold14Inch: Math.max(
+                        0,
+                        Math.floor(Number(e.target.value) || 0),
+                      ),
+                    },
+                  }))
+                }
+              />
+            </label>
+            <p className="text-xs leading-snug text-gray-500 dark:text-gray-400">
+              {exclusiveThresholdHint(labor.PEOPLE_RULES.threshold14Inch)}
+            </p>
+          </div>
         </FieldRow>
         <FieldRow
-          label="12″ plants — use 2 people if total count is more than…"
-          description="Count only 12″ plants."
+          label="12″ plants only"
+          description="Count is the sum of quantities for 12″ pots."
         >
-          <input
-            type="number"
-            min={0}
-            step={1}
-            className={controlClass}
-            value={labor.PEOPLE_RULES.threshold12Inch}
-            onChange={(e) =>
-              setLabor((c) => ({
-                ...c,
-                PEOPLE_RULES: {
-                  ...c.PEOPLE_RULES,
-                  threshold12Inch: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-                },
-              }))
-            }
-          />
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+              Two installers when 12″ total is greater than…
+              <input
+                type="number"
+                min={0}
+                step={1}
+                className={`${controlClass} mt-1.5`}
+                value={labor.PEOPLE_RULES.threshold12Inch}
+                onChange={(e) =>
+                  setLabor((c) => ({
+                    ...c,
+                    PEOPLE_RULES: {
+                      ...c.PEOPLE_RULES,
+                      threshold12Inch: Math.max(
+                        0,
+                        Math.floor(Number(e.target.value) || 0),
+                      ),
+                    },
+                  }))
+                }
+              />
+            </label>
+            <p className="text-xs leading-snug text-gray-500 dark:text-gray-400">
+              {exclusiveThresholdHint(labor.PEOPLE_RULES.threshold12Inch)}
+            </p>
+          </div>
         </FieldRow>
         <FieldRow
-          label="6″ + 8″ plants — use 2 people if combined count is more than…"
-          description="Adds 6″ and 8″ quantities together for this rule."
+          label="6″ and 8″ combined"
+          description="Count = (all 6″ quantities) + (all 8″ quantities) on the proposal."
         >
-          <input
-            type="number"
-            min={0}
-            step={1}
-            className={controlClass}
-            value={labor.PEOPLE_RULES.thresholdSmallPlants}
-            onChange={(e) =>
-              setLabor((c) => ({
-                ...c,
-                PEOPLE_RULES: {
-                  ...c.PEOPLE_RULES,
-                  thresholdSmallPlants: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-                },
-              }))
-            }
-          />
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+              Two installers when combined 6″+8″ total is greater than…
+              <input
+                type="number"
+                min={0}
+                step={1}
+                className={`${controlClass} mt-1.5`}
+                value={labor.PEOPLE_RULES.thresholdSmallPlants}
+                onChange={(e) =>
+                  setLabor((c) => ({
+                    ...c,
+                    PEOPLE_RULES: {
+                      ...c.PEOPLE_RULES,
+                      thresholdSmallPlants: Math.max(
+                        0,
+                        Math.floor(Number(e.target.value) || 0),
+                      ),
+                    },
+                  }))
+                }
+              />
+            </label>
+            <p className="text-xs leading-snug text-gray-500 dark:text-gray-400">
+              {exclusiveThresholdHint(labor.PEOPLE_RULES.thresholdSmallPlants)}
+            </p>
+          </div>
         </FieldRow>
       </SectionCard>
 
@@ -302,7 +325,9 @@ export function LaborEngineConfigForm() {
             <thead>
               <tr className="border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-600 dark:text-gray-400">
                 <th className="py-3 pr-4 font-medium">Pot size</th>
-                <th className="w-[280px] py-3 font-medium">Minutes per plant</th>
+                <th className="w-[280px] py-3 font-medium">
+                  Minutes per plant
+                </th>
               </tr>
             </thead>
             <tbody>

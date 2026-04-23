@@ -15,36 +15,8 @@ import { DEFAULT_PRICING_ENGINE_CONFIG } from "@/server/pricing/engine-schema";
 import stagingsData from "@/data/staggings-list.json";
 import { LaborEngineConfigForm } from "./LaborEngineConfigForm";
 
-const LABOR_STEP_LABELS: Record<
-  "load" | "driveToJob" | "unload" | "install" | "cleanUp" | "driveFromJob",
-  string
-> = {
-  load: "Load",
-  driveToJob: "Drive to job",
-  unload: "Unload",
-  install: "Install",
-  cleanUp: "Clean up",
-  driveFromJob: "Drive from job",
-};
-
 function pct(n: number): string {
   return `${(n * 100).toFixed(0)}%`;
-}
-
-function truckFeeForPlantCountLocal(
-  plantCount: number,
-  ranges: Array<{ from: number; to: number | null; fee: number }>,
-): number | null {
-  const count = Math.max(1, Math.floor(plantCount || 0));
-  const sorted = [...ranges].sort((a, b) => a.from - b.from);
-  for (const r of sorted) {
-    if (r.to == null) {
-      if (count >= r.from) return r.fee;
-      continue;
-    }
-    if (count >= r.from && count <= r.to) return r.fee;
-  }
-  return null;
 }
 
 function truckRangeValidationMessage(
@@ -112,7 +84,7 @@ const PRICING_CONFIG_TABS: {
   {
     id: "company",
     label: "Company & routes",
-    description: "Greenery HQ address and demo drive-time limits.",
+    description: "Greenery HQ / vendor origin address.",
   },
 ];
 
@@ -168,8 +140,6 @@ function AdminPricingPageInner() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PricingConfigTab>("prices");
-  const [truckFeePreviewPlants, setTruckFeePreviewPlants] = useState(20);
-
   useEffect(() => {
     apiGet<PricingEngineConfig>("/pricing-config")
       .then(setCfg)
@@ -449,7 +419,11 @@ function AdminPricingPageInner() {
                   <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
                     Rotations
                   </h2>
-                  <p className="mb-3 text-xs text-gray-500 dark:text-gray-400"></p>
+                  <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                    P2 labor uses plants/hour capacity; orchids default to a
+                    higher rate. P3 is freight as a percent of rotation catalog
+                    retail (not truck tables).
+                  </p>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="text-sm">
                       Plants per hour (non-orchid)
@@ -709,60 +683,7 @@ function AdminPricingPageInner() {
                           </span>
                         )}
                       </div>
-                      <div className="mt-3 flex items-end gap-3">
-                        <label className="text-xs">
-                          Preview plant count
-                          <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            className="mt-1 w-28 rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                            value={truckFeePreviewPlants}
-                            onChange={(e) =>
-                              setTruckFeePreviewPlants(
-                                Math.max(
-                                  1,
-                                  Math.floor(Number(e.target.value) || 1),
-                                ),
-                              )
-                            }
-                          />
-                        </label>
-                        <div className="text-sm">
-                          Fee:{" "}
-                          <strong>
-                            $
-                            {(
-                              truckFeeForPlantCountLocal(
-                                truckFeePreviewPlants,
-                                cfg.rotationTruckFeeRanges,
-                              ) ??
-                              cfg.defaultRotationTruckFee ??
-                              0
-                            ).toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
                     </div>
-                    <label className="text-sm sm:col-span-2">
-                      Default frequency (weeks)
-                      <select
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.defaultRotationFrequencyWeeks}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            defaultRotationFrequencyWeeks: Number(
-                              e.target.value,
-                            ) as 4 | 6 | 8,
-                          }))
-                        }
-                      >
-                        <option value={4}>4</option>
-                        <option value={6}>6</option>
-                        <option value={8}>8</option>
-                      </select>
-                    </label>
                   </div>
                 </section>
               </div>
@@ -777,514 +698,19 @@ function AdminPricingPageInner() {
               >
                 <section className="rounded-xl border border-emerald-200/80 bg-white p-5 shadow-sm dark:border-emerald-900/40 dark:bg-gray-900">
                   <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
-                    Labor engine (PWU)
+                    Labor engine
                   </h2>
                   <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
-                    Business-facing labor options only. Values are saved to{" "}
+                    Crew and install defaults for the PWU path. Use{" "}
+                    <strong>Save labor settings</strong> in the form to write{" "}
                     <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
                       data/labor-engine.config.json
                     </code>{" "}
-                    when you use <strong>Save labor settings</strong> in the
-                    form (separate from the main <strong>Save</strong>, which
-                    only updates{" "}
-                    <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-                      pricing-engine.config.json
-                    </code>
-                    ).
+                    (separate from the main pricing <strong>Save</strong>).
                   </p>
                   <LaborEngineConfigForm />
                 </section>
 
-                <details className="rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-200 dark:border-gray-800 dark:bg-gray-900 dark:open:ring-gray-700">
-                  <summary className="cursor-pointer list-none p-4 text-sm font-semibold text-gray-700 marker:content-none dark:text-gray-300 [&::-webkit-details-marker]:hidden">
-                    Legacy CPP / split fields (not used by the PWU motor)
-                  </summary>
-                  <div className="space-y-6 border-t border-gray-100 px-5 pb-5 pt-2 dark:border-gray-800">
-                    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                      <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-                        Auto Labor (CPP staffing model) — legacy
-                      </h2>
-                      <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
-                        <strong>Formula:</strong>{" "}
-                        <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-                          people = quantity &gt; threshold(diameter) ? 2 : 1
-                        </code>
-                        . Threshold can be configured per diameter point and
-                        interpolates linearly between points. Missing diameter
-                        uses fallback threshold. Install workload for labor line
-                        distribution is then derived from resulting people. Crew
-                        size ={" "}
-                        <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-                          max(1, ceil(sum person-minutes ÷ target clock
-                          minutes))
-                        </code>
-                        . Each line&apos;s hours = line person-minutes ÷ crew ÷
-                        60.
-                      </p>
-                      <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-                        Examples: 8&quot; threshold 50 (1 up to 50, then 2),
-                        10&quot; threshold 30, 14&quot; threshold 20, 19&quot;+
-                        threshold 1.5. Missing diameter uses fallback threshold.
-                      </div>
-                      <div className="mb-5 overflow-x-auto rounded-lg border border-emerald-200/70 p-3 dark:border-emerald-800/60">
-                        <p className="mb-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
-                          CPP points by diameter
-                        </p>
-                        <table className="w-full text-left text-sm">
-                          <thead className="text-xs uppercase tracking-wide text-gray-500">
-                            <tr>
-                              <th className="pb-2">Diameter (in)</th>
-                              <th className="pb-2">CPP</th>
-                              <th className="pb-2">Min employees</th>
-                              <th className="pb-2">
-                                Threshold qty for 2 people
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {cfg.laborAuto.cppByDiameterPoints.map(
-                              (point, idx) => (
-                                <tr
-                                  key={`${point.diameterInches}-${idx}`}
-                                  className="border-t border-gray-100 dark:border-gray-800"
-                                >
-                                  <td className="py-2">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      step={0.5}
-                                      className="w-24 rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                                      value={point.diameterInches}
-                                      onChange={(e) =>
-                                        setCfg((c) => ({
-                                          ...c,
-                                          laborAuto: {
-                                            ...c.laborAuto,
-                                            cppByDiameterPoints:
-                                              c.laborAuto.cppByDiameterPoints.map(
-                                                (row, i) =>
-                                                  i === idx
-                                                    ? {
-                                                        ...row,
-                                                        diameterInches:
-                                                          Math.max(
-                                                            0,
-                                                            Number(
-                                                              e.target.value,
-                                                            ) || 0,
-                                                          ),
-                                                      }
-                                                    : row,
-                                              ),
-                                          },
-                                        }))
-                                      }
-                                    />
-                                  </td>
-                                  <td className="py-2">
-                                    <input
-                                      type="number"
-                                      min={0.1}
-                                      step={0.1}
-                                      className="w-24 rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                                      value={point.cpp}
-                                      onChange={(e) =>
-                                        setCfg((c) => ({
-                                          ...c,
-                                          laborAuto: {
-                                            ...c.laborAuto,
-                                            cppByDiameterPoints:
-                                              c.laborAuto.cppByDiameterPoints.map(
-                                                (row, i) =>
-                                                  i === idx
-                                                    ? {
-                                                        ...row,
-                                                        cpp: Math.max(
-                                                          0.1,
-                                                          Number(
-                                                            e.target.value,
-                                                          ) || 0.1,
-                                                        ),
-                                                      }
-                                                    : row,
-                                              ),
-                                          },
-                                        }))
-                                      }
-                                    />
-                                  </td>
-                                  <td className="py-2">
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      step={1}
-                                      className="w-24 rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                                      value={point.minEmployees}
-                                      onChange={(e) =>
-                                        setCfg((c) => ({
-                                          ...c,
-                                          laborAuto: {
-                                            ...c.laborAuto,
-                                            cppByDiameterPoints:
-                                              c.laborAuto.cppByDiameterPoints.map(
-                                                (row, i) =>
-                                                  i === idx
-                                                    ? {
-                                                        ...row,
-                                                        minEmployees: Math.max(
-                                                          1,
-                                                          Math.floor(
-                                                            Number(
-                                                              e.target.value,
-                                                            ) || 1,
-                                                          ),
-                                                        ),
-                                                      }
-                                                    : row,
-                                              ),
-                                          },
-                                        }))
-                                      }
-                                    />
-                                  </td>
-                                  <td className="py-2">
-                                    <input
-                                      type="number"
-                                      min={0.1}
-                                      step={0.1}
-                                      className="w-32 rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                                      value={
-                                        point.twoPeopleThresholdQty ?? point.cpp
-                                      }
-                                      onChange={(e) =>
-                                        setCfg((c) => ({
-                                          ...c,
-                                          laborAuto: {
-                                            ...c.laborAuto,
-                                            cppByDiameterPoints:
-                                              c.laborAuto.cppByDiameterPoints.map(
-                                                (row, i) =>
-                                                  i === idx
-                                                    ? {
-                                                        ...row,
-                                                        twoPeopleThresholdQty:
-                                                          Math.max(
-                                                            0.1,
-                                                            Number(
-                                                              e.target.value,
-                                                            ) || 0.1,
-                                                          ),
-                                                      }
-                                                    : row,
-                                              ),
-                                          },
-                                        }))
-                                      }
-                                    />
-                                  </td>
-                                </tr>
-                              ),
-                            )}
-                          </tbody>
-                        </table>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <label className="text-sm">
-                            Interpolation mode
-                            <select
-                              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                              value={cfg.laborAuto.cppInterpolationMode}
-                              onChange={(e) =>
-                                setCfg((c) => ({
-                                  ...c,
-                                  laborAuto: {
-                                    ...c.laborAuto,
-                                    cppInterpolationMode:
-                                      e.target.value === "linear"
-                                        ? "linear"
-                                        : "linear",
-                                  },
-                                }))
-                              }
-                            >
-                              <option value="linear">
-                                Linear interpolation
-                              </option>
-                            </select>
-                          </label>
-                          <label className="text-sm">
-                            Fallback CPP (missing diameter)
-                            <input
-                              type="number"
-                              min={0.1}
-                              step={0.1}
-                              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                              value={cfg.laborAuto.missingDiameterFallbackCpp}
-                              onChange={(e) =>
-                                setCfg((c) => ({
-                                  ...c,
-                                  laborAuto: {
-                                    ...c.laborAuto,
-                                    missingDiameterFallbackCpp: Math.max(
-                                      0.1,
-                                      Number(e.target.value) || 0.1,
-                                    ),
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                          <label className="text-sm">
-                            Fallback min employees (missing diameter)
-                            <input
-                              type="number"
-                              min={1}
-                              step={1}
-                              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                              value={
-                                cfg.laborAuto
-                                  .missingDiameterFallbackMinEmployees
-                              }
-                              onChange={(e) =>
-                                setCfg((c) => ({
-                                  ...c,
-                                  laborAuto: {
-                                    ...c.laborAuto,
-                                    missingDiameterFallbackMinEmployees:
-                                      Math.max(
-                                        1,
-                                        Math.floor(Number(e.target.value) || 1),
-                                      ),
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                          <label className="text-sm">
-                            Fallback threshold qty for 2 people
-                            <input
-                              type="number"
-                              min={0.1}
-                              step={0.1}
-                              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                              value={
-                                cfg.laborAuto
-                                  .missingDiameterTwoPeopleThresholdQty ??
-                                cfg.laborAuto.missingDiameterFallbackCpp
-                              }
-                              onChange={(e) =>
-                                setCfg((c) => ({
-                                  ...c,
-                                  laborAuto: {
-                                    ...c.laborAuto,
-                                    missingDiameterTwoPeopleThresholdQty:
-                                      Math.max(
-                                        0.1,
-                                        Number(e.target.value) || 0.1,
-                                      ),
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                        </div>
-                      </div>
-                      <div className="grid gap-4 sm:grid-cols-3">
-                        <label className="text-sm">
-                          Enabled by default
-                          <select
-                            className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                            value={
-                              cfg.laborAuto.enabledByDefault ? "on" : "off"
-                            }
-                            onChange={(e) =>
-                              setCfg((c) => ({
-                                ...c,
-                                laborAuto: {
-                                  ...c.laborAuto,
-                                  enabledByDefault: e.target.value === "on",
-                                },
-                              }))
-                            }
-                          >
-                            <option value="on">Yes</option>
-                            <option value="off">No</option>
-                          </select>
-                        </label>
-                        <label className="text-sm">
-                          Target clock minutes per person
-                          <input
-                            type="number"
-                            min={1}
-                            step={5}
-                            className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                            value={cfg.laborAuto.targetClockMinutesPerPerson}
-                            onChange={(e) =>
-                              setCfg((c) => ({
-                                ...c,
-                                laborAuto: {
-                                  ...c.laborAuto,
-                                  targetClockMinutesPerPerson: Math.max(
-                                    1,
-                                    Number(e.target.value) || 1,
-                                  ),
-                                },
-                              }))
-                            }
-                          />
-                          <span className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
-                            Maximum clock minutes per person. Use 120 for a
-                            2-hour cap; when workload exceeds this target, the
-                            engine adds people in parallel.
-                          </span>
-                        </label>
-                        <label className="text-sm">
-                          Driver people (Drive lines)
-                          <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                            value={1}
-                            readOnly
-                          />
-                          <span className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
-                            Fixed to 1. The driver is part of total staffing.
-                          </span>
-                        </label>
-                        <label className="text-sm sm:col-span-3">
-                          Drive one-way hours fallback (when real drive time is
-                          unavailable)
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.25}
-                            className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                            value={
-                              cfg.laborAuto.defaultDriveHoursOneWayFallback
-                            }
-                            onChange={(e) =>
-                              setCfg((c) => ({
-                                ...c,
-                                laborAuto: {
-                                  ...c.laborAuto,
-                                  defaultDriveHoursOneWayFallback: Math.max(
-                                    0,
-                                    Number(e.target.value) || 0,
-                                  ),
-                                },
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-                      <div className="mt-6 border-t border-gray-100 pt-4 dark:border-gray-800">
-                        <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
-                          Handling minimums (person-minutes per job)
-                        </h3>
-                        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                          When the proposal includes plants, each phase is
-                          billed at least this many person-minutes (even for a
-                          single plant with one installer), before adding the
-                          plant-derived portion split by the weights below.
-                        </p>
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                          {(
-                            ["load", "unload", "install", "cleanUp"] as const
-                          ).map((key) => (
-                            <label key={key} className="text-sm">
-                              {LABOR_STEP_LABELS[key]}
-                              <input
-                                type="number"
-                                min={0}
-                                step={1}
-                                className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                                value={
-                                  cfg.laborAuto.handlingMinimumPersonMinutes[
-                                    key
-                                  ]
-                                }
-                                onChange={(e) =>
-                                  setCfg((c) => ({
-                                    ...c,
-                                    laborAuto: {
-                                      ...c.laborAuto,
-                                      handlingMinimumPersonMinutes: {
-                                        ...c.laborAuto
-                                          .handlingMinimumPersonMinutes,
-                                        [key]: Math.max(
-                                          0,
-                                          Number(e.target.value) || 0,
-                                        ),
-                                      },
-                                    },
-                                  }))
-                                }
-                              />
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    </section>
-
-                    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                      <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-                        Plant-minute split (relative weights)
-                      </h2>
-                      <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                        These four numbers split only the{" "}
-                        <strong>plant-derived</strong> person-minutes (from CPP
-                        staffing results). They do not need to add up to 100%:
-                        the engine normalizes them to sum to 1. Drive lines
-                        ignore this table and use route / fallback drive hours.
-                      </p>
-                      <p className="mb-3 text-xs font-medium text-gray-600 dark:text-gray-300">
-                        Raw weight sum:{" "}
-                        {(
-                          cfg.laborAuto.lineDistributionPct.load +
-                          cfg.laborAuto.lineDistributionPct.unload +
-                          cfg.laborAuto.lineDistributionPct.install +
-                          cfg.laborAuto.lineDistributionPct.cleanUp
-                        ).toFixed(2)}{" "}
-                        → normalized to 1.00 for the plant portion.
-                      </p>
-                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        {(
-                          ["load", "unload", "install", "cleanUp"] as const
-                        ).map((key) => (
-                          <label key={key} className="text-sm">
-                            {LABOR_STEP_LABELS[key]} (weight)
-                            <input
-                              type="number"
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                              value={cfg.laborAuto.lineDistributionPct[key]}
-                              onChange={(e) =>
-                                setCfg((c) => ({
-                                  ...c,
-                                  laborAuto: {
-                                    ...c.laborAuto,
-                                    lineDistributionPct: {
-                                      ...c.laborAuto.lineDistributionPct,
-                                      [key]: Math.min(
-                                        1,
-                                        Math.max(
-                                          0,
-                                          Number(e.target.value) || 0,
-                                        ),
-                                      ),
-                                    },
-                                  },
-                                }))
-                              }
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </section>
-                  </div>
-                </details>
               </div>
             ) : null}
 
@@ -1610,7 +1036,7 @@ function AdminPricingPageInner() {
               >
                 <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                   <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-                    Greenery HQ &amp; drive-time simulation
+                    Greenery HQ
                   </h2>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="text-sm sm:col-span-2">
@@ -1623,25 +1049,6 @@ function AdminPricingPageInner() {
                           setCfg((c) => ({
                             ...c,
                             vendorHomeAddress: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="text-sm">
-                      Simulated max drive minutes (demo)
-                      <input
-                        type="number"
-                        min={0}
-                        step={5}
-                        className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-                        value={cfg.simulatedMaxDriveMinutes}
-                        onChange={(e) =>
-                          setCfg((c) => ({
-                            ...c,
-                            simulatedMaxDriveMinutes: Math.max(
-                              0,
-                              Number(e.target.value) || 0,
-                            ),
                           }))
                         }
                       />
