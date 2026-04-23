@@ -20,20 +20,16 @@ export interface StagingLibraryItem {
   sourceId?: number;
 }
 
-function cheapestProvider(
+/** Cheapest provider row (used by Mongo catalog reader and JSON builder). */
+export function cheapestStagingProvider(
   providers: StagingProviderOption[],
 ): StagingProviderOption {
   return providers.reduce((a, b) => (a.price <= b.price ? a : b));
 }
 
-export function cheapestStagingProvider(
-  providers: StagingProviderOption[],
-): StagingProviderOption {
-  return cheapestProvider(providers);
-}
-
 const PROVIDER_ADDRESS_BY_NAME: Record<string, string> = {
-  "Home Depot": "2355 S Semoran Blvd, Orlando, FL 32822",
+  "Home Depot":
+    "6130 E Colonial Dr, Orlando, FL 32807, Estados Unidos",
   "Lowe's": "3500 S Orange Blossom Trl, Orlando, FL 32839",
 };
 
@@ -42,7 +38,7 @@ const PROVIDER_ADDRESS_BY_NAME: Record<string, string> = {
  */
 export function buildStagingLibraryFromJson(): StagingLibraryItem[] {
   return stagingsData.stagings.map((s) => {
-    const cheapest = cheapestProvider(s.providers);
+    const cheapest = cheapestStagingProvider(s.providers);
     return {
       id: `staging-cat-${s.id}`,
       label: `${s.name} — ${s.description}`,

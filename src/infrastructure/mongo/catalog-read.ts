@@ -103,7 +103,7 @@ export async function readStagingLibraryItems(
         ...p,
         address:
           p.name === "Home Depot"
-            ? "2355 S Semoran Blvd, Orlando, FL 32822"
+            ? "6130 E Colonial Dr, Orlando, FL 32807, Estados Unidos"
             : p.name === "Lowe's"
               ? "3500 S Orange Blossom Trl, Orlando, FL 32839"
               : "Orlando, FL",

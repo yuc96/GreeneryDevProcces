@@ -18,11 +18,10 @@ export interface Client {
   companyName: string;
   contactName: string;
   email: string;
-  /** Contact direct / mobile. */
   phone?: string;
-  /** Main company / office line. */
+  /** Main company line (optional). */
   companyPhone?: string;
-  /** Company-side contact (reception, office, department). */
+  /** Company contact label or name (optional). */
   companyContact?: string;
   /** From QuickBooks / CRM: repeat buyer — only Additional sale & Replacement. */
   isExistingCustomer?: boolean;
@@ -111,15 +110,12 @@ export interface ProposalItemInput {
   relatedPlantItemId?: string;
   /** Staging only: material preview image (URL). */
   stagingImageUrl?: string;
-  /** Plants auto-built from a client requirement row (removed with that row). */
-  sourceRequirementLineId?: string;
-  /** Pots auto-built from requirement pot types (rebuilt when requirements change). */
-  fromRequirementsPot?: boolean;
-  /**
-   * Plants only: user dismissed the catalog suggested thumbnail on the Photos step.
-   * When true, we do not auto-embed the suggested image on save.
-   */
+  /** When true, user dismissed catalog photo suggestion for this plant line. */
   plantPhotoSuggestedDismissed?: boolean;
+  /** Links a product line back to a requirements row id. */
+  sourceRequirementLineId?: string;
+  /** Pot line was created from requirements import (vs catalog pick). */
+  fromRequirementsPot?: boolean;
 }
 
 export type ProposalLaborLineKey =
@@ -205,7 +201,11 @@ export interface Proposal {
   maintenanceTier: "tier_1" | "tier_2" | "tier_3";
   requirementLines?: ClientRequirementLine[];
   items: Array<
-    ProposalItemInput & { id: string; clientOwnsPot: boolean; photos?: string[] }
+    ProposalItemInput & {
+      id: string;
+      clientOwnsPot: boolean;
+      photos?: string[];
+    }
   >;
   rotations: ProposalRotation[];
   laborCost: number;
@@ -237,10 +237,9 @@ export interface SummaryResponse {
   };
   client: {
     name: string;
-    /** Primary contact person from the client catalog (not edited per proposal). */
-    contactName: string;
     email: string;
     phone?: string;
+    contactName?: string;
     companyPhone?: string;
     companyContact?: string;
   };
@@ -254,6 +253,8 @@ export interface SummaryResponse {
     laborCost: number;
     laborByLine: Partial<Record<ProposalLaborLineKey, number>>;
     maintenanceMonthly: number;
+    guaranteedPlantsMonthly: number;
+    annualReplacementBudget: number;
     maintenanceBreakdown: {
       wholesalePlantsTotal: number;
       totalInstallMinutes: number;

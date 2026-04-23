@@ -1,4 +1,5 @@
 import type { ProposalItemInput } from "@/lib/types";
+import { vendorPickupAddressForPo } from "@/lib/purchase-order-vendor-address";
 import type { StagingLibraryItem } from "@/lib/staging-catalog";
 import type { PricingEngineConfig } from "@/server/pricing/engine-schema";
 import {
@@ -103,7 +104,7 @@ export function mergeAutoStagingIntoDraft(
         clientOwnsPot: false,
         requiresRotation: false,
         vendorName: c.vendorName,
-        vendorAddress: "",
+        vendorAddress: vendorPickupAddressForPo(c.vendorName, ""),
         relatedPlantItemId: pk,
         stagingImageUrl: mat?.imageUrl,
       });

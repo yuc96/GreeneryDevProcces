@@ -31,6 +31,7 @@ import type {
   ProposalListSummaryRow,
   PurchaseOrderPrintData,
 } from "@/lib/types";
+import { vendorPickupAddressForPo } from "@/lib/purchase-order-vendor-address";
 import { COL } from "@/infrastructure/mongo/collections";
 import { getMongoDb } from "@/infrastructure/mongo/mongo-client";
 import {
@@ -797,7 +798,10 @@ export async function getPurchaseOrderPrint(
       plantingWithoutPot: it.plantingWithoutPot ?? false,
       requiresRotation: it.requiresRotation,
       vendorName: it.vendorName?.trim() || "—",
-      vendorAddress: it.vendorAddress?.trim() || "—",
+      vendorAddress: vendorPickupAddressForPo(
+        it.vendorName?.trim() || "",
+        it.vendorAddress?.trim() || "",
+      ),
     }),
   );
   return {

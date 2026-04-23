@@ -57,7 +57,7 @@ describe("mergeWithPricingDefaults", () => {
     expect(merged.laborAuto.crewLarge).toBeUndefined();
   });
 
-  it("drops v1 guarantee add-on / reserve keys and upgrades schemaVersion from 1", () => {
+  it("merges guarantee add-on and replacement reserve and upgrades schemaVersion from 1", () => {
     const merged = mergeWithPricingDefaults({
       schemaVersion: 1,
       guaranteeAnnualAddOnPct: 99,
@@ -66,9 +66,7 @@ describe("mergeWithPricingDefaults", () => {
     } as Record<string, unknown>);
     expect(merged.schemaVersion).toBe(2);
     expect(merged.hourlyRate).toBe(40);
-    expect(
-      "guaranteeAnnualAddOnPct" in merged ||
-        "replacementReservePct" in merged,
-    ).toBe(false);
+    expect(merged.guaranteeAnnualAddOnPct).toBe(99);
+    expect(merged.replacementReservePct).toBe(7);
   });
 });

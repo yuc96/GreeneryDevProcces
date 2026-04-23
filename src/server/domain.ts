@@ -24,11 +24,8 @@ export interface ClientEntity {
   companyName: string;
   contactName: string;
   email: string;
-  /** Primary contact direct / mobile (USA). */
   phone?: string;
-  /** Main company / office line (USA). */
   companyPhone?: string;
-  /** Who answers the main company line (reception, department, role). */
   companyContact?: string;
   billingAddress?: string;
   /** When true (e.g. synced from QuickBooks with purchase history), sale type is limited. */
@@ -83,12 +80,9 @@ export interface ProposalItemEntity {
   relatedPlantItemId?: string;
   /** Staging: material thumbnail URL. */
   stagingImageUrl?: string;
-  /** Plants auto-built from a wizard requirement row (pruned when that row is removed). */
-  sourceRequirementLineId?: string;
-  /** Pots auto-built from requirement pot types (rebuilt when those lines change). */
-  fromRequirementsPot?: boolean;
-  /** Plants only: user opted out of the default catalog photo for this line. */
   plantPhotoSuggestedDismissed?: boolean;
+  sourceRequirementLineId?: string;
+  fromRequirementsPot?: boolean;
 }
 
 /** Reusable record for commission beneficiaries (persistent catalog). */
@@ -141,7 +135,7 @@ export interface ProposalEntity {
   submittedBy?: string;
   clientRequirementsNote?: string;
   maintenanceTier: "tier_1" | "tier_2" | "tier_3";
-  /** Client requirements from the wizard (optional for legacy rows). */
+  /** Client requirements from the first wizard step (optional for legacy rows). */
   requirementLines: ClientRequirementLineEntity[];
   items: ProposalItemEntity[];
   rotations: ProposalRotationEntity[];

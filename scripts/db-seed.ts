@@ -20,9 +20,7 @@ import { mergeWithLaborDefaults } from "../src/server/pricing/labor-engine-schem
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 
-function byId(
-  _id: string | number,
-): Filter<Record<string, unknown>> {
+function byId(_id: string | number): Filter<Record<string, unknown>> {
   return { _id } as unknown as Filter<Record<string, unknown>>;
 }
 
@@ -40,17 +38,21 @@ async function main() {
   const client = new MongoClient(uri);
   await client.connect();
   const db = client.db(dbName);
-  const plantCol = db.collection(
-    COL.plantCatalog,
-  ) as Collection<Record<string, unknown>>;
-  const potCol = db.collection(COL.potCatalog) as Collection<Record<string, unknown>>;
-  const stagingCol = db.collection(
-    COL.stagingCatalog,
-  ) as Collection<Record<string, unknown>>;
-  const clientsCol = db.collection(COL.clients) as Collection<Record<string, unknown>>;
-  const settingsCol = db.collection(
-    COL.appSettings,
-  ) as Collection<Record<string, unknown>>;
+  const plantCol = db.collection(COL.plantCatalog) as Collection<
+    Record<string, unknown>
+  >;
+  const potCol = db.collection(COL.potCatalog) as Collection<
+    Record<string, unknown>
+  >;
+  const stagingCol = db.collection(COL.stagingCatalog) as Collection<
+    Record<string, unknown>
+  >;
+  const clientsCol = db.collection(COL.clients) as Collection<
+    Record<string, unknown>
+  >;
+  const settingsCol = db.collection(COL.appSettings) as Collection<
+    Record<string, unknown>
+  >;
   const commissionCol = db.collection(
     COL.commissionBeneficiaries,
   ) as Collection<Record<string, unknown>>;
@@ -112,7 +114,9 @@ async function main() {
     console.log("Seeded pricing_engine from data/pricing-engine.config.json");
   } catch (e) {
     const code =
-      e && typeof e === "object" && "code" in e ? (e as NodeJS.ErrnoException).code : "";
+      e && typeof e === "object" && "code" in e
+        ? (e as NodeJS.ErrnoException).code
+        : "";
     if (code === "ENOENT") {
       const merged = mergeWithPricingDefaults({});
       await settingsCol.updateOne(
@@ -143,7 +147,9 @@ async function main() {
     console.log("Seeded labor_engine from data/labor-engine.config.json");
   } catch (e) {
     const code =
-      e && typeof e === "object" && "code" in e ? (e as NodeJS.ErrnoException).code : "";
+      e && typeof e === "object" && "code" in e
+        ? (e as NodeJS.ErrnoException).code
+        : "";
     if (code === "ENOENT") {
       const merged = mergeWithLaborDefaults({});
       await settingsCol.updateOne(
@@ -175,7 +181,9 @@ async function main() {
     }
   } catch (e) {
     const code =
-      e && typeof e === "object" && "code" in e ? (e as NodeJS.ErrnoException).code : "";
+      e && typeof e === "object" && "code" in e
+        ? (e as NodeJS.ErrnoException).code
+        : "";
     if (code !== "ENOENT") throw e;
   }
 

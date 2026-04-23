@@ -113,6 +113,7 @@ import {
 } from "@/lib/plant-catalog-variants";
 import { PotPicker } from "@/components/PotPicker";
 import { matchPotsForPlantSize } from "@/lib/pot-matching";
+import { vendorPickupAddressForPo } from "@/lib/purchase-order-vendor-address";
 
 const STEPS = [
   { key: "general", label: "Client information", Icon: ClipboardList },
@@ -1435,6 +1436,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       contactNameOverride?: string;
       submittedByOverride?: string;
       locationIdOverride?: string;
+      /** Use these instead of React state (needed right after setState in the same tick). */
+      commissionSnapshot?: {
+        detailsEnabled: boolean;
+        pct: number;
+        beneficiaries: number;
+        slots: string[];
+      };
     },
   ) {
     const id = explicitId ?? proposalId;
@@ -1444,10 +1452,21 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     }
     setError(null);
     try {
-      const rawIds = commissionDetailsEnabled
+      const snap = opts?.commissionSnapshot;
+      const detailsEnabled = snap
+        ? snap.detailsEnabled
+        : commissionDetailsEnabled;
+      const pctForPatch = snap ? snap.pct : commissionPct;
+      const beneficiariesForPatch = snap
+        ? snap.beneficiaries
+        : commissionBeneficiaries;
+      const slotsForPatch = snap
+        ? snap.slots
+        : commissionBeneficiarySlots;
+      const rawIds = detailsEnabled
         ? [
             ...new Set(
-              commissionBeneficiarySlots.map((s) => s.trim()).filter(Boolean),
+              slotsForPatch.map((s) => s.trim()).filter(Boolean),
             ),
           ]
         : [];
@@ -1469,21 +1488,19 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
           maintenanceTier,
           requirementLines: requirementLines.map((r) => ({ ...r })),
           laborLines,
-          commissionPct: commissionDetailsEnabled ? commissionPct : 0,
-          commissionBeneficiaries: commissionDetailsEnabled
-            ? commissionBeneficiaries
-            : 0,
-          commissionBeneficiaryIds: commissionDetailsEnabled ? rawIds : [],
-          commissionBeneficiaryId: commissionDetailsEnabled
+          commissionPct: detailsEnabled ? pctForPatch : 0,
+          commissionBeneficiaries: detailsEnabled ? beneficiariesForPatch : 0,
+          commissionBeneficiaryIds: detailsEnabled ? rawIds : [],
+          commissionBeneficiaryId: detailsEnabled
             ? (rawIds[0] ?? null)
             : null,
-          commissionBeneficiaryName: commissionDetailsEnabled
+          commissionBeneficiaryName: detailsEnabled
             ? firstRow?.name.trim() || undefined
             : "",
-          commissionBeneficiaryPhone: commissionDetailsEnabled
+          commissionBeneficiaryPhone: detailsEnabled
             ? firstRow?.phone?.trim() || undefined
             : "",
-          commissionBeneficiaryEmail: commissionDetailsEnabled
+          commissionBeneficiaryEmail: detailsEnabled
             ? firstRow?.email.trim() || undefined
             : "",
         }),
@@ -1860,6 +1877,21 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       const next = [...prev];
       if (index < 0 || index >= next.length) return prev;
       next[index] = id.trim();
+      const pid = proposalId;
+      if (pid && !isProposalLocked) {
+        const snap = {
+          detailsEnabled: commissionDetailsEnabled,
+          pct: commissionPct,
+          beneficiaries: commissionBeneficiaries,
+          slots: next,
+        };
+        queueMicrotask(() => {
+          void patchProposalGeneral(pid, {
+            quiet: true,
+            commissionSnapshot: snap,
+          });
+        });
+      }
       return next;
     });
   }
@@ -1873,6 +1905,18 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     if (commissionDetailsEnabled) {
       setCommissionDetailsEnabled(false);
       setCommissionSettingsModalOpen(false);
+      const pid = proposalId;
+      if (pid) {
+        void patchProposalGeneral(pid, {
+          quiet: true,
+          commissionSnapshot: {
+            detailsEnabled: false,
+            pct: 0,
+            beneficiaries: 0,
+            slots: [],
+          },
+        });
+      }
     } else {
       setCommissionDetailsEnabled(true);
       setCommissionSettingsModalOpen(true);
@@ -1888,16 +1932,31 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       setBeneficiaryReduceModal({ targetCount: safe });
       return;
     }
+    const prevSlots = commissionBeneficiarySlots;
+    let nextSlots: string[];
+    if (safe > prevSlots.length) {
+      nextSlots = [...prevSlots, ...Array(safe - prevSlots.length).fill("")];
+    } else if (safe < prevSlots.length) {
+      nextSlots = prevSlots.slice(0, safe);
+    } else {
+      nextSlots = prevSlots;
+    }
     setCommissionBeneficiaries(safe);
-    setCommissionBeneficiarySlots((prev) => {
-      if (safe > prev.length) {
-        return [...prev, ...Array(safe - prev.length).fill("")];
-      }
-      if (safe < prev.length) {
-        return prev.slice(0, safe);
-      }
-      return prev;
-    });
+    setCommissionBeneficiarySlots(nextSlots);
+    const pid = proposalId;
+    if (pid && !isProposalLocked) {
+      queueMicrotask(() => {
+        void patchProposalGeneral(pid, {
+          quiet: true,
+          commissionSnapshot: {
+            detailsEnabled: commissionDetailsEnabled,
+            pct: commissionPct,
+            beneficiaries: safe,
+            slots: nextSlots,
+          },
+        });
+      });
+    }
   }
 
   function sanitizeBeneficiaryCountDigits(raw: string): string {
@@ -1938,6 +1997,20 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     setCommissionBeneficiarySlots(nextSlots);
     setBeneficiaryRemovePicks([]);
     setBeneficiaryReduceModal(null);
+    const pid = proposalId;
+    if (pid && !isProposalLocked) {
+      queueMicrotask(() => {
+        void patchProposalGeneral(pid, {
+          quiet: true,
+          commissionSnapshot: {
+            detailsEnabled: commissionDetailsEnabled,
+            pct: commissionPct,
+            beneficiaries: targetCount,
+            slots: nextSlots,
+          },
+        });
+      });
+    }
   }
 
   function toggleBeneficiaryRemovePick(id: string) {
@@ -1971,7 +2044,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         : null;
     const wholesale = cheapest?.price ?? preset.wholesaleCost;
     const vendorName = cheapest?.name ?? "Staging supplier";
-    const vendorAddress = cheapest?.address ?? "Orlando, FL";
+    const vendorAddress = vendorPickupAddressForPo(
+      vendorName,
+      cheapest?.address?.trim() ? cheapest.address : "",
+    );
     const catalogId = `staging-lib-${preset.id}`;
     setDraftItems((prev) => [
       ...prev,
@@ -6335,8 +6411,24 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
             <div className="mt-6 flex justify-end border-t border-gray-100 pt-4 dark:border-gray-800">
               <button
                 type="button"
-                onClick={() => setCommissionSettingsModalOpen(false)}
-                className="rounded-lg bg-[#2b7041] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 dark:bg-emerald-700"
+                disabled={busy}
+                onClick={() => {
+                  if (isProposalLocked) {
+                    setCommissionSettingsModalOpen(false);
+                    return;
+                  }
+                  const pid = proposalId;
+                  if (pid) {
+                    setBusy(true);
+                    void patchProposalGeneral(pid, { quiet: true })
+                      .then(() => setCommissionSettingsModalOpen(false))
+                      .catch(() => {})
+                      .finally(() => setBusy(false));
+                  } else {
+                    setCommissionSettingsModalOpen(false);
+                  }
+                }}
+                className="rounded-lg bg-[#2b7041] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-emerald-700"
               >
                 Done
               </button>
@@ -6460,11 +6552,11 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
             ),
           );
-          setCommissionBeneficiarySlots((prev) => {
-            const max = Math.max(0, Math.floor(commissionBeneficiaries));
-            if (max === 0) return prev;
-            if (prev.some((x) => x.trim() === row.id)) return prev;
-            const next = [...prev];
+          const max = Math.max(0, Math.floor(commissionBeneficiaries));
+          const prevSlots = commissionBeneficiarySlots;
+          let nextSlots = prevSlots;
+          if (max > 0 && !prevSlots.some((x) => x.trim() === row.id)) {
+            const next = [...prevSlots];
             if (next.length < max) {
               next.push(...Array(max - next.length).fill(""));
             }
@@ -6472,8 +6564,23 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
             if (emptyIdx >= 0) {
               next[emptyIdx] = row.id;
             }
-            return next.slice(0, max);
-          });
+            nextSlots = next.slice(0, max);
+            setCommissionBeneficiarySlots(nextSlots);
+            const pid = proposalId;
+            if (pid && !isProposalLocked) {
+              queueMicrotask(() => {
+                void patchProposalGeneral(pid, {
+                  quiet: true,
+                  commissionSnapshot: {
+                    detailsEnabled: commissionDetailsEnabled,
+                    pct: commissionPct,
+                    beneficiaries: commissionBeneficiaries,
+                    slots: nextSlots,
+                  },
+                });
+              });
+            }
+          }
         }}
       />
 

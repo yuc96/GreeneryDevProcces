@@ -1,4 +1,5 @@
 import type { PurchaseOrderPrintData } from "@/lib/types";
+import { vendorPickupAddressForPo } from "@/lib/purchase-order-vendor-address";
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -112,7 +113,9 @@ export function PurchaseOrderPrintBody({
                         <div className="po-vendor">{it.vendorName}</div>
                       </td>
                       <td>
-                        <div className="po-vendor-addr">{it.vendorAddress}</div>
+                        <div className="po-vendor-addr">
+                          {vendorPickupAddressForPo(it.vendorName, it.vendorAddress)}
+                        </div>
                         {it.category === "plant" ? (
                           <div className="po-line-note">
                             {it.plantingWithoutPot

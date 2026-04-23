@@ -231,6 +231,14 @@ export const pricingEngineConfigSchema = z.object({
   materialFreightPct: z.number().min(0).max(1),
   /** Additional charge per plant when planting is done without pot sourcing. */
   plantingWithoutPotFeePerPlant: z.number().min(0),
+  /**
+   * GMM: extra % on annual retail base for guaranteed plants (0–100, see compute).
+   */
+  guaranteeAnnualAddOnPct: z.number().min(0),
+  /**
+   * Annual replacement budget as % of guaranteed plants’ monthly total (0–100).
+   */
+  replacementReservePct: z.number().min(0),
   markupMin: z.number(),
   markupMax: z.number(),
   markupStep: z.number(),
@@ -351,6 +359,8 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
   potFreightPct: 0.25,
   materialFreightPct: 0.25,
   plantingWithoutPotFeePerPlant: 12,
+  guaranteeAnnualAddOnPct: 0,
+  replacementReservePct: 0,
   markupMin: 1.5,
   markupMax: 3.0,
   markupStep: 0.5,
@@ -594,11 +604,8 @@ export function parsePricingEngineConfig(raw: unknown): PricingEngineConfig {
   return parsed.data;
 }
 
-/** Keys from schema v1; ignored when merging persisted JSON/Mongo. */
-const LEGACY_PRICING_ENGINE_KEYS = [
-  "guaranteeAnnualAddOnPct",
-  "replacementReservePct",
-] as const;
+/** Keys from older schema versions; stripped before merge + parse. */
+const LEGACY_PRICING_ENGINE_KEYS: readonly string[] = [];
 
 function stripLegacyPricingEngineKeys(
   partial: Record<string, unknown>,
@@ -711,11 +718,27 @@ export function mergeWithPricingDefaults(
     rotationFreightPctRaw <= 1
       ? rotationFreightPctRaw
       : DEFAULT_PRICING_ENGINE_CONFIG.rotationFreightPct;
+  const guaranteeRaw = ext.guaranteeAnnualAddOnPct;
+  const guaranteeAnnualAddOnPct =
+    typeof guaranteeRaw === "number" &&
+    Number.isFinite(guaranteeRaw) &&
+    guaranteeRaw >= 0
+      ? guaranteeRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.guaranteeAnnualAddOnPct;
+  const reserveRaw = ext.replacementReservePct;
+  const replacementReservePct =
+    typeof reserveRaw === "number" &&
+    Number.isFinite(reserveRaw) &&
+    reserveRaw >= 0
+      ? reserveRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.replacementReservePct;
   const merged = {
     ...DEFAULT_PRICING_ENGINE_CONFIG,
     ...ext,
     schemaVersion: DEFAULT_PRICING_ENGINE_CONFIG.schemaVersion,
     plantingWithoutPotFeePerPlant,
+    guaranteeAnnualAddOnPct,
+    replacementReservePct,
     rotationTruckFeeOptions,
     defaultRotationTruckFee,
     rotationFrequencyWeeksOptions,

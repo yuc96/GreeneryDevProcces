@@ -44,5 +44,13 @@
     "email": "piullaga@gmail.com",
     "createdAt": "2026-04-23T19:41:55.363Z",
     "updatedAt": "2026-04-23T19:41:55.363Z"
+  },
+  {
+    "id": "e78ed789-bf9d-40d4-9f31-23d49aceba4a",
+    "name": "Olga",
+    "phone": "55959556262626",
+    "email": "olga@gmail.com",
+    "createdAt": "2026-04-23T22:05:55.822Z",
+    "updatedAt": "2026-04-23T22:05:55.822Z"
   }
 ]
