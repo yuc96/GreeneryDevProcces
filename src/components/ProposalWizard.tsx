@@ -2468,24 +2468,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     reader.readAsText(f);
   }
 
-  async function applyCatalogPhotosToAllPlants() {
-    setError(null);
-    for (let i = 0; i < draftItems.length; i++) {
-      const row = draftItems[i];
-      if (row.category !== "plant") continue;
-      if ((row.photos?.length ?? 0) > 0) continue;
-      const picks = catalogEntriesForPhotoPicker(
-        row.name,
-        "",
-        plantReferenceCatalog.plants,
-      );
-      const first = picks.find((p) => p.imagePublicPath);
-      if (first?.imagePublicPath) {
-        await appendCatalogPhotoToPlant(i, first.imagePublicPath);
-      }
-    }
-  }
-
   const driveMinutesResolved = useMemo<number | null>(() => {
     const overrideNum =
       driveMinutesOverride.trim() === "" ? NaN : Number(driveMinutesOverride);
@@ -3386,10 +3368,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 <div className="flex w-full min-w-0 items-center justify-between gap-4 rounded-2xl border border-[#334155] bg-[#1e293b] px-5 py-4 shadow-lg sm:ml-auto sm:w-auto">
                   <div className="flex min-w-0 flex-col">
                     <h3 className="text-[13px] font-bold uppercase tracking-wide text-white">
-                      Comisión
+                      Commission
                     </h3>
                     <p className="mt-0.5 text-[13px] text-slate-400">
-                      Comisión de venta opcional
+                      Optional sales commission
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-4">
@@ -3399,13 +3381,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         onClick={() => setCommissionSettingsModalOpen(true)}
                         aria-label={
                           isProposalLocked
-                            ? "Ver configuración de comisión"
-                            : "Configurar comisión"
+                            ? "View commission settings"
+                            : "Configure commission"
                         }
                         title={
                           isProposalLocked
-                            ? "Ver comisión"
-                            : "Configurar comisión"
+                            ? "View commission"
+                            : "Configure commission"
                         }
                         className="flex items-center gap-2 rounded-lg border border-transparent bg-[#334155] px-3 py-1.5 text-[13px] font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-[#475569]"
                       >
@@ -3413,7 +3395,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           className="h-4 w-4 shrink-0 text-slate-300"
                           strokeWidth={2}
                         />
-                        {isProposalLocked ? "Ver" : "Configurar"}
+                        {isProposalLocked ? "View" : "Configure"}
                       </button>
                     ) : null}
                     <button
@@ -3428,7 +3410,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           : "bg-[#475569]"
                       }`}
                     >
-                      <span className="sr-only">Activar comisión</span>
+                      <span className="sr-only">Enable commission</span>
                       <span
                         aria-hidden
                         className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
@@ -5140,38 +5122,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   client. They are saved when you click{" "}
                   <span className="font-medium">Next</span>.
                 </p>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
-                <p className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
-                  Plant photo source
-                </p>
-                <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                  The flow now uses the internal catalog by default. You can
-                  still upload and mix your own photos per plant below. When you
-                  save products, the best-match suggested image is embedded for
-                  any plant line with no photos unless you dismiss that
-                  suggestion with the X on the suggested tile.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void applyCatalogPhotosToAllPlants()}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold dark:border-gray-700 dark:bg-gray-900"
-                  >
-                    Use catalog suggestions
-                  </button>
-                </div>
-                {visiblePhotoTargets.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => void applyCatalogPhotosToAllPlants()}
-                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Add best-match catalog photo to each plant line
-                  </button>
-                ) : null}
               </div>
 
               <div className="space-y-4">
