@@ -26,6 +26,12 @@ function cheapestProvider(
   return providers.reduce((a, b) => (a.price <= b.price ? a : b));
 }
 
+export function cheapestStagingProvider(
+  providers: StagingProviderOption[],
+): StagingProviderOption {
+  return cheapestProvider(providers);
+}
+
 const PROVIDER_ADDRESS_BY_NAME: Record<string, string> = {
   "Home Depot": "2355 S Semoran Blvd, Orlando, FL 32822",
   "Lowe's": "3500 S Orange Blossom Trl, Orlando, FL 32839",

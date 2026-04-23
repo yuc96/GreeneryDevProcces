@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { getProposalsStore } from "@/server/proposals-store";
+import {
+  approveAndGenerateOrdersProposal,
+  markProposalSent,
+} from "@/server/proposals-store";
 import { handleRouteError } from "@/server/route-utils";
 import { parseWorkflowAction } from "@/server/validate-proposal";
 
@@ -11,12 +14,11 @@ export async function POST(
     const { id } = await ctx.params;
     const body = await req.json();
     const action = parseWorkflowAction(body);
-    const store = getProposalsStore();
     if (action === "send_to_client") {
-      const proposal = store.markAsSent(id);
+      const proposal = await markProposalSent(id);
       return NextResponse.json({ proposal, purchaseOrders: [] });
     }
-    const result = store.approveAndGenerateOrders(id);
+    const result = await approveAndGenerateOrdersProposal(id);
     return NextResponse.json(result);
   } catch (e) {
     return handleRouteError(e);

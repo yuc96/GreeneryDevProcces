@@ -2,7 +2,6 @@ import plantReferenceJson from "@/data/plant-reference-images.json";
 import {
   CANONICAL_POT_SIZES_INCHES,
   type CanonicalPotSizeInches,
-  isCanonicalPotSizeInches,
 } from "@/domain/catalog/canonical-sizes";
 
 export interface GrowerOption {
@@ -74,9 +73,7 @@ type PlantReferenceRow = {
   scientificName?: string;
   imageFile?: string | null;
   imagePublicPath?: string | null;
-  /** If set, only these pot sizes are generated for this catalog row. */
-  offeredSizeInches?: number[];
-  /** When true, all offered variants get `requiresRotation` for proposal rotation sync. */
+  /** When true, all size variants get `requiresRotation` for proposal rotation sync. */
   rotationProgram?: boolean;
   /** Optional table wholesale (first grower price) keyed by size string, e.g. `"6": 32`. */
   seedWholesalePricesBySize?: Record<string, number>;
@@ -95,14 +92,8 @@ const DEFAULT_SIZE_INCHES_BY_SELECTION: Record<string, number> = {
   SHEET_6: 8,
 };
 
-function sizesForPlant(p: PlantReferenceRow): CanonicalPotSizeInches[] {
-  if (p.offeredSizeInches?.length) {
-    const out: CanonicalPotSizeInches[] = [];
-    for (const n of p.offeredSizeInches) {
-      if (isCanonicalPotSizeInches(n)) out.push(n);
-    }
-    if (out.length) return out;
-  }
+/** Every catalog species is seeded with one Mongo variant per canonical pot diameter. */
+function allCanonicalSizesForPlant(): CanonicalPotSizeInches[] {
   return [...CANONICAL_POT_SIZES_INCHES];
 }
 
@@ -151,7 +142,7 @@ export function buildPlantCatalogDocuments(): PlantCatalogDoc[] {
     const baseInches =
       DEFAULT_SIZE_INCHES_BY_SELECTION[p.selectionSheet ?? ""] ?? 12;
     const rotation = Boolean(p.rotationProgram);
-    const sizes = sizesForPlant(p);
+    const sizes = allCanonicalSizesForPlant();
     const variants: PlantCatalogVariantDoc[] = sizes.map((sizeInches) => ({
       sizeInches,
       requiresRotation: rotation,

@@ -1960,7 +1960,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   function autoSourceAllFromRequirements() {
     const hasPlant = requirementLines.some((l) =>
-      isPlantCatalogSelectionComplete(l.plantCatalogId),
+      isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
     );
     if (!hasPlant) {
       setError(
@@ -1973,7 +1973,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     setDraftItems((prev) => {
       const next = prev.filter((row) => row.category === "staging");
       for (const line of requirementLines) {
-        if (!isPlantCatalogSelectionComplete(line.plantCatalogId)) continue;
+        if (!isPlantCatalogSelectionComplete(line.plantCatalogId, catalog)) continue;
         const plant = catalog.find((p) => p.id === line.plantCatalogId);
         if (!plant?.growers.length) continue;
         let bestIdx = 0;
@@ -2055,7 +2055,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
       const newPlants: ProposalItemInput[] = [];
       for (const line of requirementLines) {
-        if (!isPlantCatalogSelectionComplete(line.plantCatalogId)) continue;
+        if (!isPlantCatalogSelectionComplete(line.plantCatalogId, catalog)) continue;
         if (coveredReqIds.has(line.id)) continue;
         const plant = catalog.find((p) => p.id === line.plantCatalogId);
         if (!plant?.growers.length) continue;
@@ -2497,7 +2497,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const requirementPlantLinesForLabor = useMemo(
     () =>
       requirementLines
-        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId))
+        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId, catalog))
         .map((l) => {
           const plant = catalog.find((p) => p.id === l.plantCatalogId.trim());
           const sizeInches =
@@ -2786,9 +2786,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       new Set(
         requirementLines
           .map((l) => l.plantCatalogId.trim())
-          .filter(isPlantCatalogSelectionComplete),
+          .filter((id) => isPlantCatalogSelectionComplete(id, catalog)),
       ),
-    [requirementLines],
+    [requirementLines, catalog],
   );
 
   useEffect(() => {
@@ -2796,7 +2796,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       requirementLines
         .filter(
           (l) =>
-            isPlantCatalogSelectionComplete(l.plantCatalogId) && l.guaranteed,
+            isPlantCatalogSelectionComplete(l.plantCatalogId, catalog) && l.guaranteed,
         )
         .map(
           (l) => `${l.plantCatalogId.trim()}::${l.area.trim().toLowerCase()}`,
@@ -2909,7 +2909,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const requirementsStepOk = useMemo(
     () =>
       requirementLines.some((l) =>
-        isPlantCatalogSelectionComplete(l.plantCatalogId),
+        isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
       ),
     [requirementLines],
   );
@@ -2917,7 +2917,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const totalPlantUnitsFromRequirements = useMemo(
     () =>
       requirementLines
-        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId))
+        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId, catalog))
         .reduce((s, l) => s + l.qty, 0),
     [requirementLines],
   );
@@ -2993,7 +2993,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     if (step !== 2) return;
     if (autoSourceDoneRef.current) return;
     const can = requirementLines.some((l) =>
-      isPlantCatalogSelectionComplete(l.plantCatalogId),
+      isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
     );
     if (!can) return;
     if (!catalog.length) return;
@@ -3022,7 +3022,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const requirementPlantLinesSyncKey = useMemo(
     () =>
       requirementLines
-        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId))
+        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId, catalog))
         .map(
           (l) =>
             `${l.id}:${l.plantCatalogId}:${l.qty}:${(l.area ?? "").trim()}:${l.environment}:${l.potType.trim()}`,
@@ -3037,7 +3037,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     if (!catalog.length) return;
     if (
       !requirementLines.some((l) =>
-        isPlantCatalogSelectionComplete(l.plantCatalogId),
+        isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
       )
     ) {
       return;
@@ -3316,9 +3316,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       : (plantEntry?.name ??
                         plantEntry?.commonName ??
                         "Unnamed Plant");
-                    const sizeLabel = variantInfo
-                      ? `${variantInfo.sizeInches}"`
-                      : null;
+                    const sizeLabel =
+                      variantInfo != null
+                        ? `${variantInfo.sizeInches}"`
+                        : typeof plantEntry?.sizeInches === "number" &&
+                            plantEntry.sizeInches > 0
+                          ? `${plantEntry.sizeInches}"`
+                          : null;
                     /* null = unset (pot picker active)
                        "planting" = plantingWithoutPot
                        "nopot"    = clientHasPot          */
@@ -3438,6 +3442,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                     plantSizeInches={
                                       isPlantCatalogSelectionComplete(
                                         line.plantCatalogId,
+                                        catalog,
                                       )
                                         ? (catalog.find(
                                             (p) => p.id === line.plantCatalogId,
@@ -4125,6 +4130,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                               !requirementLines.some((l) =>
                                 isPlantCatalogSelectionComplete(
                                   l.plantCatalogId,
+                                  catalog,
                                 ),
                               ) || busy
                             }
@@ -4156,6 +4162,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                               !requirementLines.some((l) =>
                                 isPlantCatalogSelectionComplete(
                                   l.plantCatalogId,
+                                  catalog,
                                 ),
                               ) || busy
                             }

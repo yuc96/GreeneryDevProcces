@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getClientsStore } from "@/server/clients-store";
+import { locationsForClient } from "@/server/clients-store";
 import { handleRouteError } from "@/server/route-utils";
 
 export async function GET(
@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await ctx.params;
-    return NextResponse.json(getClientsStore().locationsFor(id));
+    return NextResponse.json(await locationsForClient(id));
   } catch (e) {
     return handleRouteError(e);
   }

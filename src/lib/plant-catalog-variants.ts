@@ -42,11 +42,36 @@ export function parsePlantVariantCatalogId(
   return { catalogLower: m[1], sizeInches };
 }
 
-export function isPlantCatalogSelectionComplete(plantCatalogId: string): boolean {
+function catalogRowForPlantId(
+  catalog: readonly PlantCatalogEntry[],
+  plantCatalogId: string,
+): PlantCatalogEntry | undefined {
+  const id = plantCatalogId.trim();
+  if (!id || !catalog.length) return undefined;
+  return catalog.find((p) => p.id === id);
+}
+
+/**
+ * True when the user finished species + size for a requirement line.
+ * Supports Mongo variant ids (`plant-code-10`) and legacy/static ids (`plant-code`)
+ * when `catalog` contains a matching row with a known size.
+ */
+export function isPlantCatalogSelectionComplete(
+  plantCatalogId: string,
+  catalog?: readonly PlantCatalogEntry[],
+): boolean {
   const id = plantCatalogId.trim();
   if (!id) return false;
   if (id.startsWith(PLANT_SPECIES_PENDING_PREFIX)) return false;
-  return parsePlantVariantCatalogId(id) !== null;
+  if (parsePlantVariantCatalogId(id) !== null) return true;
+  const row = catalog?.length
+    ? catalogRowForPlantId(catalog, id)
+    : undefined;
+  return Boolean(
+    row?.catalogCode?.trim() &&
+      typeof row.sizeInches === "number" &&
+      row.sizeInches > 0,
+  );
 }
 
 export function uniquePlantSpeciesRows(
@@ -84,6 +109,17 @@ export function deriveSpeciesCodeAndSize(
 ): { speciesCode: string; sizeStr: string } {
   const pending = parseSpeciesPendingCatalogId(plantCatalogId);
   if (pending) return { speciesCode: pending, sizeStr: "" };
+
+  const direct = catalogRowForPlantId(catalog, plantCatalogId);
+  if (direct?.catalogCode?.trim()) {
+    const inches = direct.sizeInches;
+    return {
+      speciesCode: direct.catalogCode.trim(),
+      sizeStr:
+        typeof inches === "number" && inches > 0 ? String(inches) : "",
+    };
+  }
+
   const v = parsePlantVariantCatalogId(plantCatalogId);
   if (!v) return { speciesCode: "", sizeStr: "" };
   const row = catalog.find(
@@ -91,8 +127,17 @@ export function deriveSpeciesCodeAndSize(
       p.catalogCode?.toLowerCase() === v.catalogLower &&
       p.sizeInches === v.sizeInches,
   );
+  if (row?.catalogCode?.trim()) {
+    return {
+      speciesCode: row.catalogCode.trim(),
+      sizeStr: String(v.sizeInches),
+    };
+  }
+  const anySameCode = catalog.find(
+    (p) => p.catalogCode?.trim().toLowerCase() === v.catalogLower,
+  );
   return {
-    speciesCode: row?.catalogCode ?? "",
+    speciesCode: anySameCode?.catalogCode?.trim() ?? v.catalogLower,
     sizeStr: String(v.sizeInches),
   };
 }
