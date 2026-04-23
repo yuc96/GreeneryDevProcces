@@ -355,13 +355,91 @@ function parseItem(row: unknown, index: number): ProposalItemInput {
       stagingImageUrl = u.length ? u : undefined;
     }
   } else {
-    if (r.relatedPlantItemId !== undefined) {
+    // Legacy/persisted non-staging rows may carry `null` or empty string for
+    // these staging-only fields (e.g. older documents or round-tripped
+    // JSON). Treat anything that doesn't represent a real value as a
+    // no-op instead of rejecting the whole payload.
+    if (
+      r.relatedPlantItemId !== undefined &&
+      r.relatedPlantItemId !== null &&
+      !(typeof r.relatedPlantItemId === "string" && r.relatedPlantItemId.trim() === "")
+    ) {
       throw new HttpError(400, `items[${index}].relatedPlantItemId is only allowed for staging`);
     }
-    if (r.stagingImageUrl !== undefined) {
+    if (
+      r.stagingImageUrl !== undefined &&
+      r.stagingImageUrl !== null &&
+      !(typeof r.stagingImageUrl === "string" && r.stagingImageUrl.trim() === "")
+    ) {
       throw new HttpError(400, `items[${index}].stagingImageUrl is only allowed for staging`);
     }
   }
+
+  let sourceRequirementLineId: string | undefined;
+  if (category === "plant") {
+    if (
+      r.sourceRequirementLineId !== undefined &&
+      r.sourceRequirementLineId !== null
+    ) {
+      if (typeof r.sourceRequirementLineId !== "string") {
+        throw new HttpError(
+          400,
+          `items[${index}].sourceRequirementLineId must be a string`,
+        );
+      }
+      const t = r.sourceRequirementLineId.trim();
+      sourceRequirementLineId = t.length ? t : undefined;
+    }
+  } else if (
+    r.sourceRequirementLineId !== undefined &&
+    r.sourceRequirementLineId !== null &&
+    !(
+      typeof r.sourceRequirementLineId === "string" &&
+      r.sourceRequirementLineId.trim() === ""
+    )
+  ) {
+    throw new HttpError(
+      400,
+      `items[${index}].sourceRequirementLineId is only allowed for plants`,
+    );
+  }
+
+  let fromRequirementsPot: boolean | undefined;
+  if (category === "pot") {
+    if (r.fromRequirementsPot !== undefined && r.fromRequirementsPot !== null) {
+      fromRequirementsPot = Boolean(r.fromRequirementsPot);
+    }
+  } else if (r.fromRequirementsPot === true) {
+    throw new HttpError(
+      400,
+      `items[${index}].fromRequirementsPot is only allowed for pots`,
+    );
+  }
+
+  let plantPhotoSuggestedDismissed: boolean | undefined;
+  if (category === "plant") {
+    if (
+      r.plantPhotoSuggestedDismissed !== undefined &&
+      r.plantPhotoSuggestedDismissed !== null
+    ) {
+      if (typeof r.plantPhotoSuggestedDismissed !== "boolean") {
+        throw new HttpError(
+          400,
+          `items[${index}].plantPhotoSuggestedDismissed must be a boolean`,
+        );
+      }
+      plantPhotoSuggestedDismissed = r.plantPhotoSuggestedDismissed;
+    }
+  } else if (
+    r.plantPhotoSuggestedDismissed !== undefined &&
+    r.plantPhotoSuggestedDismissed !== null
+  ) {
+    throw new HttpError(
+      400,
+      `items[${index}].plantPhotoSuggestedDismissed is only allowed for plants`,
+    );
+  }
+
   return {
     ...(id ? { id } : {}),
     category: category as ProposalItemInput["category"],
@@ -384,6 +462,13 @@ function parseItem(row: unknown, index: number): ProposalItemInput {
     ...(guaranteed !== undefined ? { guaranteed } : {}),
     ...(relatedPlantItemId !== undefined ? { relatedPlantItemId } : {}),
     ...(stagingImageUrl !== undefined ? { stagingImageUrl } : {}),
+    ...(sourceRequirementLineId !== undefined
+      ? { sourceRequirementLineId }
+      : {}),
+    ...(fromRequirementsPot !== undefined ? { fromRequirementsPot } : {}),
+    ...(plantPhotoSuggestedDismissed !== undefined
+      ? { plantPhotoSuggestedDismissed }
+      : {}),
   };
 }
 

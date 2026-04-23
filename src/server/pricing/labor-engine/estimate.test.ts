@@ -14,12 +14,12 @@ describe("estimateLaborLinesCore (prompt example)", () => {
       {
         plants: [
           { size: size(`6"`), quantity: 20 },
-          { size: size(`10"`), quantity: 15 },
+          { size: size(`12"`), quantity: 15 },
           { size: size(`14"`), quantity: 3 },
         ],
         pots: [
           { size: size(`6"`), quantity: 20 },
-          { size: size(`10"`), quantity: 15 },
+          { size: size(`12"`), quantity: 15 },
           { size: size(`14"`), quantity: 3 },
         ],
         materials: [

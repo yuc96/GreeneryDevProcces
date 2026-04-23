@@ -166,24 +166,84 @@
 
 .proposal-html-root .plant-photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
   margin-top: 10px;
 }
 
+.proposal-html-root .plant-photo-grid--single {
+  grid-template-columns: minmax(0, 300px);
+  justify-content: start;
+}
+
 .proposal-html-root .plant-photo-grid-cell {
-  aspect-ratio: 1;
-  border-radius: 4px;
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border-radius: 6px;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e2e8f0;
   background: #f8faf8;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.proposal-html-root .plant-photo-grid-cell:hover {
+  border-color: #a8c4a4;
+  box-shadow: 0 2px 6px rgba(45, 90, 39, 0.14);
 }
 
 .proposal-html-root .plant-photo-grid-cell .plant-card-photo {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1;
   object-fit: cover;
   display: block;
+  background: #f1f5f4;
+}
+
+.proposal-html-root .plant-photo-grid-cell--reference {
+  border-color: #a8c4a4;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 60%);
+  box-shadow: 0 1px 3px rgba(45, 90, 39, 0.12);
+}
+
+.proposal-html-root .plant-photo-grid-caption {
+  display: block;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  padding: 4px 6px 5px;
+  background: #fff;
+  border-top: 1px solid #eef2ee;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.proposal-html-root .plant-photo-grid-cell--reference .plant-photo-grid-caption {
+  color: var(--primary-green);
+  background: #eef5ee;
+  border-top-color: #cde1cc;
+}
+
+.proposal-html-root .plant-photo-grid-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: var(--primary-green);
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  line-height: 1.15;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
 }
 
 .proposal-html-root .gallery-area-block {
@@ -374,5 +434,22 @@
   .proposal-html-root .plant-photo-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
+  }
+  .proposal-html-root .plant-photo-grid--single {
+    grid-template-columns: minmax(0, 180px) !important;
+  }
+  .proposal-html-root .plant-photo-grid-cell {
+    box-shadow: none !important;
+  }
+  .proposal-html-root .plant-photo-grid-cell:hover {
+    box-shadow: none !important;
+  }
+  .proposal-html-root .plant-photo-grid-caption {
+    font-size: 0.55rem;
+    padding: 3px 4px 4px;
+  }
+  .proposal-html-root .plant-photo-grid-badge {
+    font-size: 0.5rem;
+    padding: 1.5px 5px;
   }
 }

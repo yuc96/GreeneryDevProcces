@@ -5,11 +5,9 @@ import type {
   ProposalLaborLineKey,
 } from "../domain";
 import { PROPOSAL_LABOR_KEYS } from "../domain";
-import type { PricingEngineConfig } from "./engine-schema";
+import type { PricingEngineConfig, RotationCatalogEntry } from "./engine-schema";
 import type { LaborEngineConfig } from "./labor-engine-schema";
-import { DEFAULT_LABOR_ENGINE_CONFIG } from "./labor-engine-schema";
 import { parseSizeInchesFromText } from "./cpp-model";
-import { installOnePersonMinutesForPlantUnits } from "./labor-engine/plant-install-minutes";
 
 export type LaborLineKey = ProposalLaborLineKey;
 export type LaborLineState = ProposalLaborLineEntity;
@@ -18,7 +16,10 @@ export interface RotationLineState {
   qty: number;
   frequencyWeeks: 4 | 6 | 8;
   rotationUnitPrice: number;
+  /** Legacy field; GUTS P3 uses `rotationFreightPct` on rotation retail. */
   truckFee: number;
+  /** Drives orchid vs non-orchid labor capacity (GUTS §8). */
+  plantName?: string;
 }
 
 export interface ProposalEngineInput {
@@ -98,20 +99,41 @@ function freightPctForCategory(
   return config.materialFreightPct;
 }
 
-/** Install minutes for a single plant at the given diameter (PWU time table). */
+/**
+ * Install minutes per plant for maintenance (GUTS §4): small band 6–8″,
+ * large band 10–14″, default otherwise — from pricing engine bands only.
+ */
+export function maintenanceInstallMinutesPerPlant(
+  inches: number | null,
+  config: PricingEngineConfig,
+): number {
+  if (inches == null || !Number.isFinite(inches)) {
+    return config.installMinutesDefault;
+  }
+  const n = inches;
+  if (
+    n >= config.largeBandMinInches &&
+    n <= config.largeBandMaxInches
+  ) {
+    return config.installMinutesLargeBand;
+  }
+  if (
+    n >= config.smallBandMinInches &&
+    n <= config.smallBandMaxInches
+  ) {
+    return config.installMinutesSmallBand;
+  }
+  return config.installMinutesDefault;
+}
+
+/** Alias for maintenance install minutes (pricing bands). */
 export function installMinutesForInches(
   inches: number | null,
   config: PricingEngineConfig,
-  laborCfg: LaborEngineConfig = DEFAULT_LABOR_ENGINE_CONFIG,
+  _laborCfg?: LaborEngineConfig,
 ): number {
-  void config;
-  return installOnePersonMinutesForPlantUnits(
-    1,
-    inches,
-    undefined,
-    parseSizeInchesFromText,
-    laborCfg,
-  );
+  void _laborCfg;
+  return maintenanceInstallMinutesPerPlant(inches, config);
 }
 
 function overheadFactorForSum(
@@ -125,15 +147,38 @@ function overheadFactorForSum(
   return brackets[brackets.length - 1]!.factor;
 }
 
+/** Plants/hour for rotation P2 labor (orchids: higher throughput in GUTS). */
+export function rotationCapacityPlantsPerHour(
+  plantName: string | undefined,
+  config: PricingEngineConfig,
+): number {
+  const n = (plantName ?? "").toLowerCase();
+  if (
+    n.includes("orchid") ||
+    n.includes("orquídea") ||
+    n.includes("orquidea")
+  ) {
+    return config.rotationOrchidPlantsPerHour;
+  }
+  return config.rotationPlantsPerHour;
+}
+
+/**
+ * GUTS §8 rotation monthly: P1 plant proration, P2 labor at capacity, P3 freight
+ * on rotation catalog retail (not truck tables).
+ */
 export function computeRotationMonthly(
   line: RotationLineState,
   config: PricingEngineConfig,
 ): { p1: number; p2: number; p3: number; monthly: number } {
-  const { qty, frequencyWeeks, rotationUnitPrice, truckFee } = line;
+  const { qty, frequencyWeeks, rotationUnitPrice } = line;
   const f = frequencyWeeks;
+  const cap = rotationCapacityPlantsPerHour(line.plantName, config);
+  const laborRate = config.rotationLaborHourlyRate;
+  const freightPct = config.rotationFreightPct;
   const p1 = (qty * rotationUnitPrice * f) / 12;
-  const p2 = (((qty / config.rotationPlantsPerHour) * f) / 12) * config.hourlyRate;
-  const p3 = (((qty / config.rotationPlantsPerHour) * f) / 12) * truckFee;
+  const p2 = (((qty / cap) * f) / 12) * laborRate;
+  const p3 = (qty * rotationUnitPrice * freightPct * f) / 12;
   return { p1, p2, p3, monthly: p1 + p2 + p3 };
 }
 
@@ -157,7 +202,7 @@ export function computeProposal(
   input: ProposalEngineInput,
   options?: ComputeProposalOptions,
 ): ComputeProposalResult {
-  const laborCfg = options?.laborEngineConfig ?? DEFAULT_LABOR_ENGINE_CONFIG;
+  void options?.laborEngineConfig;
   const totals = {
     plants: { wholesale: 0, retail: 0, freight: 0 },
     pots: { wholesale: 0, retail: 0, freight: 0 },
@@ -166,6 +211,7 @@ export function computeProposal(
 
   let totalInstallMinutes = 0;
   let wholesalePlantsTotal = 0;
+  let wholesaleGuaranteedPlants = 0;
   let guaranteedPlantsMonthly = 0;
 
   for (const item of input.items) {
@@ -184,6 +230,7 @@ export function computeProposal(
           Math.max(0, Number(item.qty) || 0) * config.plantingWithoutPotFeePerPlant;
       }
       if (item.guaranteed) {
+        wholesaleGuaranteedPlants += effW;
         const retailBase = item.wholesaleCost * item.markup * item.qty;
         const adjustedRetail =
           retailBase + (retailBase * config.guaranteeAnnualAddOnPct) / 100;
@@ -194,13 +241,8 @@ export function computeProposal(
         typeof item.sizeInches === "number" && Number.isFinite(item.sizeInches)
           ? item.sizeInches
           : parseSizeInchesFromText(item.name);
-      totalInstallMinutes += installOnePersonMinutesForPlantUnits(
-        item.qty,
-        inches,
-        item.name,
-        parseSizeInchesFromText,
-        laborCfg,
-      );
+      const perPlant = maintenanceInstallMinutesPerPlant(inches, config);
+      totalInstallMinutes += Math.max(0, Number(item.qty) || 0) * perPlant;
     } else if (item.category === "pot") {
       totals.pots.wholesale += effW;
       totals.pots.retail += retail;
@@ -235,12 +277,18 @@ export function computeProposal(
     installationHours * config.hourlyRate * config.weeksPerMonth;
   const costPerMonthPlants =
     (wholesalePlantsTotal * config.plantWholesaleMonthlyFactor) / 12;
-  const tierEvaluationSum = costPerMonthHours + wholesalePlantsTotal;
+  const tierEvaluationSum = costPerMonthHours + costPerMonthPlants;
   const overheadFactor = overheadFactorForSum(tierEvaluationSum, config);
   const overhead =
     (costPerMonthHours + costPerMonthPlants) * overheadFactor;
+  const mmgCore = costPerMonthHours + costPerMonthPlants + overhead;
+  const mmCore = costPerMonthHours + overhead;
+  const guaranteedWholesaleFrac =
+    wholesalePlantsTotal > 0
+      ? Math.min(1, Math.max(0, wholesaleGuaranteedPlants / wholesalePlantsTotal))
+      : 1;
   const guaranteedMonthlyMaintenance =
-    costPerMonthHours + costPerMonthPlants + overhead;
+    mmgCore * guaranteedWholesaleFrac + mmCore * (1 - guaranteedWholesaleFrac);
 
   const maintenanceBreakdown: MaintenanceBreakdown = {
     wholesalePlantsTotal,
@@ -339,23 +387,121 @@ export function normalizeLaborLines(
   });
 }
 
+function normRotationText(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\u2013|\u2014/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function variantMatchesName(catalogVariant: string, plantNorm: string): boolean {
+  const v = normRotationText(catalogVariant).replace(/^-+|-+$/g, "");
+  if (!v || v === "-" || v === "—") return true;
+  return plantNorm.includes(v);
+}
+
+function isNeutralRotationVariant(catalogVariant: string): boolean {
+  const v = normRotationText(catalogVariant).replace(/^-+|-+$/g, "");
+  return v.length === 0;
+}
+
+function pickRotationEntryForSize(
+  pool: RotationCatalogEntry[],
+  plantNorm: string,
+  sizeInches: number | null,
+): RotationCatalogEntry | undefined {
+  const sized =
+    sizeInches != null
+      ? pool.filter((c) => c.sizeInches === sizeInches)
+      : [];
+  const bucket = sized.length ? sized : pool;
+  if (bucket.length === 1) return bucket[0];
+  if (bucket.length === 0) return undefined;
+  if (plantNorm.includes("mum")) {
+    const m = bucket.filter((c) => normRotationText(c.variant).includes("mum"));
+    if (m.length) return m[0];
+  }
+  if (plantNorm.includes("annual")) {
+    const m = bucket.filter((c) =>
+      normRotationText(c.variant).includes("annual"),
+    );
+    if (m.length) return m[0];
+  }
+  const neutral = bucket.filter((c) => isNeutralRotationVariant(c.variant));
+  return neutral[0] ?? bucket[0];
+}
+
+/**
+ * Picks the rotation wholesale row that best matches the proposal plant line name
+ * (common name + pot size), using `parseSizeInchesFromText` and rotationCatalog
+ * group / variant / sizeInches.
+ */
 export function pickDefaultRotationCatalogPrice(
   plantName: string,
   config: PricingEngineConfig,
 ): number {
-  const n = plantName.toLowerCase();
   const cat = config.rotationCatalog;
-  if (n.includes("orchid")) {
-    const m = cat.filter((c) => c.group === "Orchids");
-    return m[0]?.price ?? 32;
+  const fallback = cat[0]?.price ?? 10;
+  const n = normRotationText(plantName);
+  const sizeInches = parseSizeInchesFromText(plantName);
+
+  const byGroup = (g: string) => cat.filter((c) => c.group === g);
+
+  let pool: typeof cat;
+  if (n.includes("color rotation")) {
+    pool = byGroup("Color rotation");
+    if (n.includes("mum")) {
+      const narrowed = pool.filter((c) =>
+        normRotationText(c.variant).includes("mum"),
+      );
+      if (narrowed.length) pool = narrowed;
+    } else if (n.includes("annual")) {
+      const narrowed = pool.filter((c) =>
+        normRotationText(c.variant).includes("annual"),
+      );
+      if (narrowed.length) pool = narrowed;
+    }
+  } else if (n.includes("color bowl")) {
+    pool = byGroup("Color rotation");
+    const annualOnly = pool.filter((c) =>
+      normRotationText(c.variant).includes("annual"),
+    );
+    if (annualOnly.length) pool = annualOnly;
+  } else if (
+    n.includes("orchid") ||
+    n.includes("orquídea") ||
+    n.includes("orquidea") ||
+    n.includes("lady jane") ||
+    n.includes("anthurium")
+  ) {
+    pool = byGroup("Orchids");
+    if (n.includes("double spike")) {
+      const narrowed = pool.filter((c) =>
+        variantMatchesName(c.variant, n),
+      );
+      if (narrowed.length) pool = narrowed;
+    } else if (n.includes("single spike")) {
+      const narrowed = pool.filter((c) =>
+        variantMatchesName(c.variant, n),
+      );
+      if (narrowed.length) pool = narrowed;
+    } else {
+      const singleOnly = pool.filter((c) =>
+        normRotationText(c.variant).includes("single"),
+      );
+      if (singleOnly.length) pool = singleOnly;
+    }
+  } else if (n.includes("bromeliad")) {
+    pool = byGroup("Bromeliads");
+  } else if (n.includes("succulent")) {
+    pool = byGroup("Succulents");
+  } else {
+    return fallback;
   }
-  if (n.includes("bromeliad")) {
-    const m = cat.filter((c) => c.group === "Bromeliads");
-    return m[0]?.price ?? 17.5;
-  }
-  if (n.includes("succulent")) {
-    const m = cat.filter((c) => c.group === "Succulents");
-    return m[0]?.price ?? 10;
-  }
-  return cat[0]?.price ?? 10;
+
+  if (!pool.length) return fallback;
+
+  const pick = pickRotationEntryForSize(pool, n, sizeInches);
+  return pick?.price ?? fallback;
 }

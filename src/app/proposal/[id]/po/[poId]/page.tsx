@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { PrintBar } from "@/components/PrintBar";
 import type { PurchaseOrderPrintData } from "@/lib/types";
 import { HttpError } from "@/server/http-error";
-import { getProposalsStore } from "@/server/proposals-store";
+import * as proposalsStore from "@/server/proposals-store";
 import { PurchaseOrderPrintBody } from "./PurchaseOrderPrintBody";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export default async function PurchaseOrderPrintPage({
   const { id, poId } = await params;
   let data: PurchaseOrderPrintData;
   try {
-    data = getProposalsStore().getPurchaseOrderPrint(id, poId);
+    data = await proposalsStore.getPurchaseOrderPrint(id, poId);
   } catch (e) {
     if (e instanceof HttpError && e.status === 404) notFound();
     throw e;

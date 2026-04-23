@@ -11,10 +11,10 @@ const POT_SIZES: readonly LaborPlantSize[] = [
   `4"`,
   `6"`,
   `8"`,
-  `10"`,
+  `12"`,
   `14"`,
   `17"`,
-  `20"`,
+  `21"`,
   `24"`,
 ];
 
@@ -22,15 +22,15 @@ const SIZE_LABEL: Record<LaborPlantSize, string> = {
   [`4"`]: '4"',
   [`6"`]: '6"',
   [`8"`]: '8"',
-  [`10"`]: '10"',
+  [`12"`]: '12"',
   [`14"`]: '14"',
   [`17"`]: '17"',
-  [`20"`]: '20"',
+  [`21"`]: '21"',
   [`24"`]: '24"',
 };
 
 /** Sizes that can force 2 people when any plant of that size is on the job. */
-const LARGE_PRESENCE_SIZES = [`17"`, `20"`, `24"`] as const;
+const LARGE_PRESENCE_SIZES = [`17"`, `21"`, `24"`] as const;
 
 const controlClass =
   "w-full max-w-[280px] rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm outline-none ring-[#2b7041]/0 transition focus:border-[#2b7041] focus:ring-2 focus:ring-[#2b7041]/25 dark:border-gray-600 dark:bg-gray-950 dark:text-gray-100 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/25";
@@ -250,21 +250,21 @@ export function LaborEngineConfigForm() {
           />
         </FieldRow>
         <FieldRow
-          label="10″ plants — use 2 people if total count is more than…"
-          description="Count only 10″ plants."
+          label="12″ plants — use 2 people if total count is more than…"
+          description="Count only 12″ plants."
         >
           <input
             type="number"
             min={0}
             step={1}
             className={controlClass}
-            value={labor.PEOPLE_RULES.threshold10Inch}
+            value={labor.PEOPLE_RULES.threshold12Inch}
             onChange={(e) =>
               setLabor((c) => ({
                 ...c,
                 PEOPLE_RULES: {
                   ...c.PEOPLE_RULES,
-                  threshold10Inch: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                  threshold12Inch: Math.max(0, Math.floor(Number(e.target.value) || 0)),
                 },
               }))
             }

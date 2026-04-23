@@ -15,12 +15,12 @@ describe("computeAutoLaborLines (PWU engine)", () => {
     const res = computeAutoLaborLines({
       plantItems: [
         { qty: 20, sizeInches: 6 },
-        { qty: 15, sizeInches: 10 },
+        { qty: 15, sizeInches: 12 },
         { qty: 3, sizeInches: 14 },
       ],
       potItems: [
         { qty: 20, sizeInches: 6 },
-        { qty: 15, sizeInches: 10 },
+        { qty: 15, sizeInches: 12 },
         { qty: 3, sizeInches: 14 },
       ],
       stagingItems: [
@@ -76,7 +76,7 @@ describe("computeAutoLaborLines (PWU engine)", () => {
 
   it("parses diameter from plant name when available", () => {
     const res = computeAutoLaborLines({
-      plantItems: [{ qty: 4, name: 'Ficus Lyrata 10"' }],
+      plantItems: [{ qty: 4, name: 'Ficus Lyrata 12"' }],
       driveMinutesOneWay: 10,
       config: baseCfg,
       laborConfig: laborCfg,
@@ -85,11 +85,11 @@ describe("computeAutoLaborLines (PWU engine)", () => {
     expect(res.totalInstallMinutes).toBe(8);
   });
 
-  it("snaps 19 inch plants to 20 inch PWU band", () => {
+  it("snaps 19 inch plants to 21 inch PWU band", () => {
     const res = computeAutoLaborLines({
       plantItems: [
         { qty: 50, sizeInches: 8 },
-        { qty: 30, sizeInches: 10 },
+        { qty: 30, sizeInches: 12 },
         { qty: 20, sizeInches: 14 },
         { qty: 2, sizeInches: 19 },
       ],

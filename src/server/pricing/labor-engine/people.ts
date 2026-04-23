@@ -21,7 +21,7 @@ function sumQtyBySize(plants: PlantQtyRow[], size: LaborPlantSize): number {
 export type PeopleRuleId =
   | "plants_17_or_larger"
   | "total_14_over_threshold"
-  | "total_10_over_threshold"
+  | "total_12_over_threshold"
   | "total_6_8_over_threshold"
   | "default_1_person";
 
@@ -48,10 +48,10 @@ export function determinePeopleForInstall(
     };
   }
 
-  if (sumQtyBySize(plants, `10"`) > rules.threshold10Inch) {
+  if (sumQtyBySize(plants, `12"`) > rules.threshold12Inch) {
     return {
       people: Math.min(cfg.MAX_PEOPLE, 2),
-      ruleMatched: "total_10_over_threshold",
+      ruleMatched: "total_12_over_threshold",
     };
   }
 

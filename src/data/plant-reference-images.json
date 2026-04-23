@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Greenery selection catalog. 56 PNGs in /public/plants/reference/{code}.png; filenames assigned from Plant Images (sorted). Verify visual match and swap files as needed. EEE/FFF/GGG: add images later.",
+  "notes": "Greenery selection catalog. PNGs in /public/plants/reference/{code}.png. Optional offeredSizeInches + seedWholesalePricesBySize + rotationProgram drive Mongo seed (see plant-catalog-builder). JJSS/JJDS replace legacy JJ orchid row.",
   "plants": [
     {
       "catalogCode": "A",
@@ -160,7 +160,15 @@
       "commonName": "Bromeliads",
       "scientificName": "Bromeliaceae",
       "imageFile": "T.png",
-      "imagePublicPath": "/plants/reference/T.png"
+      "imagePublicPath": "/plants/reference/T.png",
+      "offeredSizeInches": [4, 6, 8, 14],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "4": 11.5,
+        "6": 17.5,
+        "8": 37.5,
+        "14": 200
+      }
     },
     {
       "catalogCode": "U",
@@ -176,7 +184,14 @@
       "commonName": "Color Bowl",
       "scientificName": "Assorted flowering",
       "imageFile": "V.png",
-      "imagePublicPath": "/plants/reference/V.png"
+      "imagePublicPath": "/plants/reference/V.png",
+      "offeredSizeInches": [4, 6, 8],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "4": 2.5,
+        "6": 13.75,
+        "8": 18.75
+      }
     },
     {
       "catalogCode": "W",
@@ -232,7 +247,13 @@
       "commonName": "Lady Jane",
       "scientificName": "Anthurium scherzerianum",
       "imageFile": "CC.png",
-      "imagePublicPath": "/plants/reference/CC.png"
+      "imagePublicPath": "/plants/reference/CC.png",
+      "offeredSizeInches": [4, 6],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "4": 24,
+        "6": 32
+      }
     },
     {
       "catalogCode": "DD",
@@ -283,12 +304,31 @@
       "imagePublicPath": "/plants/reference/II.png"
     },
     {
-      "catalogCode": "JJ",
+      "catalogCode": "JJSS",
       "selectionSheet": "SHEET_4",
-      "commonName": "Orchids",
+      "commonName": "Orchid — Single Spike",
       "scientificName": "Phalaenopsis",
-      "imageFile": "JJ.png",
-      "imagePublicPath": "/plants/reference/JJ.png"
+      "imageFile": "JJSS.png",
+      "imagePublicPath": "/plants/reference/JJSS.png",
+      "offeredSizeInches": [4, 6],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "4": 24,
+        "6": 32
+      }
+    },
+    {
+      "catalogCode": "JJDS",
+      "selectionSheet": "SHEET_4",
+      "commonName": "Orchid — Double Spike",
+      "scientificName": "Phalaenopsis",
+      "imageFile": "JJDS.png",
+      "imagePublicPath": "/plants/reference/JJDS.png",
+      "offeredSizeInches": [6],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "6": 38.75
+      }
     },
     {
       "catalogCode": "KK",
@@ -473,6 +513,50 @@
       "scientificName": "Washingtonia filifera",
       "imageFile": null,
       "imagePublicPath": null
+    },
+    {
+      "catalogCode": "SUC",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Succulent",
+      "scientificName": "Succulent assorted",
+      "imageFile": "SUC.png",
+      "imagePublicPath": "/plants/reference/SUC.png",
+      "offeredSizeInches": [2, 3, 4, 6],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "2": 4,
+        "3": 5,
+        "4": 8.5,
+        "6": 24
+      }
+    },
+    {
+      "catalogCode": "CLRANN",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Color rotation — Annual",
+      "scientificName": "Annual color rotation",
+      "imageFile": "CLRANN.png",
+      "imagePublicPath": "/plants/reference/CLRANN.png",
+      "offeredSizeInches": [4, 6, 8],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "4": 2.5,
+        "6": 13.75,
+        "8": 18.75
+      }
+    },
+    {
+      "catalogCode": "CLRMUM",
+      "selectionSheet": "SHEET_2",
+      "commonName": "Color rotation — Mum",
+      "scientificName": "Chrysanthemum color rotation",
+      "imageFile": "CLRMUM.png",
+      "imagePublicPath": "/plants/reference/CLRMUM.png",
+      "offeredSizeInches": [6],
+      "rotationProgram": true,
+      "seedWholesalePricesBySize": {
+        "6": 18.75
+      }
     }
   ]
 }

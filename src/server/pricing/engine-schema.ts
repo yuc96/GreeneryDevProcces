@@ -253,7 +253,14 @@ export const pricingEngineConfigSchema = z.object({
   /** Fallback minutes per plant when size does not match bands. */
   installMinutesDefault: z.number(),
   overheadBrackets: z.array(overheadBracketSchema).length(4),
+  /** Rotation labor P2: plants/hour for Bromeliads, Color rotation, Succulents (GUTS §8). */
   rotationPlantsPerHour: z.number(),
+  /** Rotation labor P2: plants/hour for Orchids only (GUTS §8). */
+  rotationOrchidPlantsPerHour: z.number(),
+  /** Hourly rate used in rotation P2 labor (GUTS: $35/h default). */
+  rotationLaborHourlyRate: z.number(),
+  /** Freight on rotation catalog retail for P3 (GUTS: 25%). */
+  rotationFreightPct: z.number().min(0).max(1),
   /**
    * Configurable nested ranges for logistics/truck fee by total plant count.
    * Must be contiguous and non-overlapping; first starts at 1 and last ends at infinity (to=null).
@@ -371,6 +378,9 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
     { maxExclusive: null, factor: 0.45 },
   ],
   rotationPlantsPerHour: 15,
+  rotationOrchidPlantsPerHour: 20,
+  rotationLaborHourlyRate: 35,
+  rotationFreightPct: 0.25,
   rotationTruckFeeRanges: [
     { from: 1, to: 20, fee: 25 },
     { from: 21, to: null, fee: 50 },
@@ -383,20 +393,55 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
     { id: "rot-bro-4", group: "Bromeliads", type: "Bromeliad", variant: "—", sizeInches: 4, price: 11.5 },
     { id: "rot-bro-6", group: "Bromeliads", type: "Bromeliad", variant: "—", sizeInches: 6, price: 17.5 },
     { id: "rot-bro-8", group: "Bromeliads", type: "Bromeliad", variant: "—", sizeInches: 8, price: 37.5 },
+    { id: "rot-bro-14", group: "Bromeliads", type: "Bromeliad", variant: "—", sizeInches: 14, price: 200 },
     { id: "rot-orch-ss-4", group: "Orchids", type: "Orchid", variant: "Single Spike", sizeInches: 4, price: 24 },
     { id: "rot-orch-ss-6", group: "Orchids", type: "Orchid", variant: "Single Spike", sizeInches: 6, price: 32 },
-    { id: "rot-orch-ds-6", group: "Orchids", type: "Orchid", variant: "Double Spike", sizeInches: 6, price: 37 },
-    { id: "rot-suc-an-4", group: "Succulents", type: "Succulent", variant: "Annual", sizeInches: 4, price: 6.5 },
-    { id: "rot-suc-an-6", group: "Succulents", type: "Succulent", variant: "Annual", sizeInches: 6, price: 10 },
+    { id: "rot-orch-ds-6", group: "Orchids", type: "Orchid", variant: "Double Spike", sizeInches: 6, price: 38.75 },
+    { id: "rot-suc-2", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 2, price: 4 },
+    { id: "rot-suc-3", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 3, price: 5 },
+    { id: "rot-suc-4", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 4, price: 8.5 },
+    { id: "rot-suc-6", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 6, price: 24 },
     { id: "rot-suc-an-9", group: "Succulents", type: "Succulent", variant: "Annual", sizeInches: 9, price: 14 },
     { id: "rot-suc-mum-6", group: "Succulents", type: "Succulent", variant: "Mum", sizeInches: 6, price: 17.5 },
+    {
+      id: "rot-clr-ann-4",
+      group: "Color rotation",
+      type: "Color rotation",
+      variant: "Annual",
+      sizeInches: 4,
+      price: 2.5,
+    },
+    {
+      id: "rot-clr-ann-6",
+      group: "Color rotation",
+      type: "Color rotation",
+      variant: "Annual",
+      sizeInches: 6,
+      price: 13.75,
+    },
+    {
+      id: "rot-clr-ann-8",
+      group: "Color rotation",
+      type: "Color rotation",
+      variant: "Annual",
+      sizeInches: 8,
+      price: 18.75,
+    },
+    {
+      id: "rot-clr-mum-6",
+      group: "Color rotation",
+      type: "Color rotation",
+      variant: "Mum",
+      sizeInches: 6,
+      price: 18.75,
+    },
   ],
-  defaultCommissionPct: 0.1,
+  defaultCommissionPct: 0.05,
   subIrrigationTable: [
-    { sizeInches: 17, price: 32 },
-    { sizeInches: 14, price: 16.98 },
-    { sizeInches: 10, price: 9.77 },
-    { sizeInches: 8, price: 5.96 },
+    { sizeInches: 17, price: 48 },
+    { sizeInches: 14, price: 26 },
+    { sizeInches: 10, price: 16 },
+    { sizeInches: 8, price: 9 },
   ],
   maintenanceAnnualCostFraction: 0.4,
   vendorHomeAddress: "1751 Directors Row, Orlando, FL 32809, Estados Unidos",
@@ -584,12 +629,110 @@ export function mergeWithPricingDefaults(
     replacementRaw >= 0
       ? replacementRaw
       : DEFAULT_PRICING_ENGINE_CONFIG.replacementReservePct;
+  const rotationTruckFeeOptionsRaw = ext.rotationTruckFeeOptions;
+  const rotationTruckFeeOptions =
+    Array.isArray(rotationTruckFeeOptionsRaw) &&
+    rotationTruckFeeOptionsRaw.length > 0 &&
+    rotationTruckFeeOptionsRaw.every(
+      (v) => typeof v === "number" && Number.isFinite(v) && v > 0,
+    )
+      ? [...rotationTruckFeeOptionsRaw]
+      : DEFAULT_PRICING_ENGINE_CONFIG.rotationTruckFeeOptions;
+  const defaultRotationTruckFeeRaw = ext.defaultRotationTruckFee;
+  const defaultRotationTruckFee =
+    typeof defaultRotationTruckFeeRaw === "number" &&
+    Number.isFinite(defaultRotationTruckFeeRaw) &&
+    defaultRotationTruckFeeRaw > 0
+      ? defaultRotationTruckFeeRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.defaultRotationTruckFee;
+  const rotationFrequencyWeeksOptionsRaw = ext.rotationFrequencyWeeksOptions;
+  const rotationFrequencyWeeksOptions =
+    Array.isArray(rotationFrequencyWeeksOptionsRaw) &&
+    rotationFrequencyWeeksOptionsRaw.length === 3 &&
+    rotationFrequencyWeeksOptionsRaw[0] === 4 &&
+    rotationFrequencyWeeksOptionsRaw[1] === 6 &&
+    rotationFrequencyWeeksOptionsRaw[2] === 8
+      ? ([4, 6, 8] as const)
+      : DEFAULT_PRICING_ENGINE_CONFIG.rotationFrequencyWeeksOptions;
+  const defaultRotationFrequencyWeeksRaw = ext.defaultRotationFrequencyWeeks;
+  const defaultRotationFrequencyWeeks =
+    defaultRotationFrequencyWeeksRaw === 4 ||
+    defaultRotationFrequencyWeeksRaw === 6 ||
+    defaultRotationFrequencyWeeksRaw === 8
+      ? defaultRotationFrequencyWeeksRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.defaultRotationFrequencyWeeks;
+  const defaultCommissionPctRaw = ext.defaultCommissionPct;
+  const defaultCommissionPct =
+    typeof defaultCommissionPctRaw === "number" &&
+    Number.isFinite(defaultCommissionPctRaw) &&
+    defaultCommissionPctRaw >= 0 &&
+    defaultCommissionPctRaw <= 1
+      ? defaultCommissionPctRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.defaultCommissionPct;
+  const maintenanceAnnualCostFractionRaw = ext.maintenanceAnnualCostFraction;
+  const maintenanceAnnualCostFraction =
+    typeof maintenanceAnnualCostFractionRaw === "number" &&
+    Number.isFinite(maintenanceAnnualCostFractionRaw) &&
+    maintenanceAnnualCostFractionRaw >= 0 &&
+    maintenanceAnnualCostFractionRaw <= 1
+      ? maintenanceAnnualCostFractionRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.maintenanceAnnualCostFraction;
+  const vendorHomeAddressRaw = ext.vendorHomeAddress;
+  const vendorHomeAddress =
+    typeof vendorHomeAddressRaw === "string" && vendorHomeAddressRaw.trim()
+      ? vendorHomeAddressRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.vendorHomeAddress;
+  const simulatedMaxDriveMinutesRaw = ext.simulatedMaxDriveMinutes;
+  const simulatedMaxDriveMinutes =
+    typeof simulatedMaxDriveMinutesRaw === "number" &&
+    Number.isFinite(simulatedMaxDriveMinutesRaw) &&
+    simulatedMaxDriveMinutesRaw >= 0
+      ? simulatedMaxDriveMinutesRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.simulatedMaxDriveMinutes;
+  const rotationPlantsPerHourRaw = ext.rotationPlantsPerHour;
+  const rotationPlantsPerHour =
+    typeof rotationPlantsPerHourRaw === "number" &&
+    Number.isFinite(rotationPlantsPerHourRaw) &&
+    rotationPlantsPerHourRaw > 0
+      ? rotationPlantsPerHourRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.rotationPlantsPerHour;
+  const rotationOrchidPlantsPerHourRaw = ext.rotationOrchidPlantsPerHour;
+  const rotationOrchidPlantsPerHour =
+    typeof rotationOrchidPlantsPerHourRaw === "number" &&
+    Number.isFinite(rotationOrchidPlantsPerHourRaw) &&
+    rotationOrchidPlantsPerHourRaw > 0
+      ? rotationOrchidPlantsPerHourRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.rotationOrchidPlantsPerHour;
+  const rotationLaborHourlyRateRaw = ext.rotationLaborHourlyRate;
+  const rotationLaborHourlyRate =
+    typeof rotationLaborHourlyRateRaw === "number" &&
+    Number.isFinite(rotationLaborHourlyRateRaw) &&
+    rotationLaborHourlyRateRaw >= 0
+      ? rotationLaborHourlyRateRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.rotationLaborHourlyRate;
+  const rotationFreightPctRaw = ext.rotationFreightPct;
+  const rotationFreightPct =
+    typeof rotationFreightPctRaw === "number" &&
+    Number.isFinite(rotationFreightPctRaw) &&
+    rotationFreightPctRaw >= 0 &&
+    rotationFreightPctRaw <= 1
+      ? rotationFreightPctRaw
+      : DEFAULT_PRICING_ENGINE_CONFIG.rotationFreightPct;
   const merged = {
     ...DEFAULT_PRICING_ENGINE_CONFIG,
     ...partial,
+    schemaVersion: DEFAULT_PRICING_ENGINE_CONFIG.schemaVersion,
     plantingWithoutPotFeePerPlant,
     guaranteeAnnualAddOnPct,
     replacementReservePct,
+    rotationTruckFeeOptions,
+    defaultRotationTruckFee,
+    rotationFrequencyWeeksOptions,
+    defaultRotationFrequencyWeeks,
+    defaultCommissionPct,
+    maintenanceAnnualCostFraction,
+    vendorHomeAddress,
+    simulatedMaxDriveMinutes,
     overheadBrackets:
       Array.isArray((partial as { overheadBrackets?: unknown }).overheadBrackets) &&
       (partial as { overheadBrackets: unknown[] }).overheadBrackets.length === 4
@@ -611,6 +754,10 @@ export function mergeWithPricingDefaults(
       (partial as { rotationTruckFeeRanges?: unknown }).rotationTruckFeeRanges,
       DEFAULT_PRICING_ENGINE_CONFIG.rotationTruckFeeRanges,
     ),
+    rotationPlantsPerHour,
+    rotationOrchidPlantsPerHour,
+    rotationLaborHourlyRate,
+    rotationFreightPct,
     laborAuto: mergeLaborAuto(
       (partial as { laborAuto?: unknown }).laborAuto,
     ),
@@ -634,6 +781,12 @@ function mergeLaborAuto(partial: unknown): LaborAutoConfig {
   const base = DEFAULT_PRICING_ENGINE_CONFIG.laborAuto;
   if (!partial || typeof partial !== "object") return base;
   const p = partial as Partial<LaborAutoConfig>;
+  const optionalNonNegativeNumber = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+  const optionalCrewMap = (v: unknown): LaborCrewMap | undefined => {
+    const parsed = laborCrewMapSchema.safeParse(v);
+    return parsed.success ? parsed.data : undefined;
+  };
   return {
     enabledByDefault:
       typeof p.enabledByDefault === "boolean"
@@ -705,13 +858,16 @@ function mergeLaborAuto(partial: unknown): LaborAutoConfig {
       p.missingDiameterTwoPeopleThresholdQty > 0
         ? p.missingDiameterTwoPeopleThresholdQty
         : base.missingDiameterTwoPeopleThresholdQty,
-    // Legacy fields preserved verbatim (no longer consumed by engine).
-    crewThresholdInstallMinutes: p.crewThresholdInstallMinutes,
-    defaultLoadHours: p.defaultLoadHours,
-    defaultUnloadHours: p.defaultUnloadHours,
-    defaultCleanupHours: p.defaultCleanupHours,
-    crewSmall: p.crewSmall,
-    crewLarge: p.crewLarge,
+    // Legacy fields preserved only when valid; null legacy values should not
+    // override defaults or break schema validation for persisted Mongo docs.
+    crewThresholdInstallMinutes: optionalNonNegativeNumber(
+      p.crewThresholdInstallMinutes,
+    ),
+    defaultLoadHours: optionalNonNegativeNumber(p.defaultLoadHours),
+    defaultUnloadHours: optionalNonNegativeNumber(p.defaultUnloadHours),
+    defaultCleanupHours: optionalNonNegativeNumber(p.defaultCleanupHours),
+    crewSmall: optionalCrewMap(p.crewSmall),
+    crewLarge: optionalCrewMap(p.crewLarge),
   };
 }
 

@@ -4,10 +4,10 @@ export const laborPlantSizeSchema = z.enum([
   `4"`,
   `6"`,
   `8"`,
-  `10"`,
+  `12"`,
   `14"`,
   `17"`,
-  `20"`,
+  `21"`,
   `24"`,
 ]);
 
@@ -29,10 +29,10 @@ const sizeMapSchema = z.object({
   [`4"`]: z.number(),
   [`6"`]: z.number(),
   [`8"`]: z.number(),
-  [`10"`]: z.number(),
+  [`12"`]: z.number(),
   [`14"`]: z.number(),
   [`17"`]: z.number(),
-  [`20"`]: z.number(),
+  [`21"`]: z.number(),
   [`24"`]: z.number(),
 });
 
@@ -61,7 +61,7 @@ export const laborEngineConfigSchema = z.object({
   PEOPLE_RULES: z.object({
     largeSizesRequireTwo: z.array(laborPlantSizeSchema),
     threshold14Inch: z.number().int().min(0),
-    threshold10Inch: z.number().int().min(0),
+    threshold12Inch: z.number().int().min(0),
     thresholdSmallPlants: z.number().int().min(0),
   }),
   MIN_HOURS: z.number().positive(),
@@ -81,30 +81,30 @@ export const DEFAULT_LABOR_ENGINE_CONFIG: LaborEngineConfig = {
     [`4"`]: 0.8,
     [`6"`]: 1.0,
     [`8"`]: 1.2,
-    [`10"`]: 1.5,
+    [`12"`]: 1.5,
     [`14"`]: 2.5,
     [`17"`]: 4.0,
-    [`20"`]: 6.0,
+    [`21"`]: 6.0,
     [`24"`]: 8.0,
   },
   PWU_PLANTS_INSTALL: {
     [`4"`]: 0.8,
     [`6"`]: 1.0,
     [`8"`]: 1.3,
-    [`10"`]: 1.8,
+    [`12"`]: 1.8,
     [`14"`]: 3.0,
     [`17"`]: 5.0,
-    [`20"`]: 7.0,
+    [`21"`]: 7.0,
     [`24"`]: 9.0,
   },
   PWU_POTS_LOAD_UNLOAD: {
     [`4"`]: 0.5,
     [`6"`]: 0.7,
     [`8"`]: 1.0,
-    [`10"`]: 1.5,
+    [`12"`]: 1.5,
     [`14"`]: 3.0,
     [`17"`]: 5.0,
-    [`20"`]: 7.0,
+    [`21"`]: 7.0,
     [`24"`]: 10.0,
   },
   PWU_MATERIALS_PER_BULK: {
@@ -120,10 +120,10 @@ export const DEFAULT_LABOR_ENGINE_CONFIG: LaborEngineConfig = {
     [`4"`]: 1,
     [`6"`]: 1,
     [`8"`]: 1,
-    [`10"`]: 2,
+    [`12"`]: 2,
     [`14"`]: 2,
     [`17"`]: 4,
-    [`20"`]: 6,
+    [`21"`]: 6,
     [`24"`]: 8,
   },
   PRODUCTIVITY_LOAD_PWU_PER_PERSON_HOUR: 25,
@@ -131,9 +131,9 @@ export const DEFAULT_LABOR_ENGINE_CONFIG: LaborEngineConfig = {
   CLEANUP_BASE_MINUTES: 15,
   CLEANUP_MINUTES_PER_PWU: 0.3,
   PEOPLE_RULES: {
-    largeSizesRequireTwo: [`17"`, `20"`, `24"`],
+    largeSizesRequireTwo: [`17"`, `21"`, `24"`],
     threshold14Inch: 20,
-    threshold10Inch: 30,
+    threshold12Inch: 30,
     thresholdSmallPlants: 50,
   },
   MIN_HOURS: 0.25,
@@ -170,6 +170,52 @@ function deepMergeLabor<T extends Record<string, unknown>>(
   return out as T;
 }
 
+const SIZE_MAP_KEYS = [
+  "PWU_PLANTS_LOAD_UNLOAD",
+  "PWU_PLANTS_INSTALL",
+  "PWU_POTS_LOAD_UNLOAD",
+  "INSTALL_MINUTES_PER_PLANT",
+] as const;
+
+/** Maps legacy 10″/20″ buckets to canonical 12″/21″ after merge. */
+function migrateLegacyLaborBuckets(merged: Record<string, unknown>): void {
+  for (const key of SIZE_MAP_KEYS) {
+    const block = merged[key];
+    if (!block || typeof block !== "object" || Array.isArray(block)) continue;
+    const m = block as Record<string, unknown>;
+    if (`10"` in m) {
+      m[`12"`] = m[`10"`];
+      delete m[`10"`];
+    }
+    if (`20"` in m) {
+      m[`21"`] = m[`20"`];
+      delete m[`20"`];
+    }
+  }
+  const rules = merged.PEOPLE_RULES;
+  if (rules && typeof rules === "object" && !Array.isArray(rules)) {
+    const r = rules as Record<string, unknown>;
+    if ("threshold10Inch" in r) {
+      const legacy = r.threshold10Inch;
+      if (typeof legacy === "number") {
+        r.threshold12Inch = legacy;
+      }
+      delete r.threshold10Inch;
+    }
+    if (Array.isArray(r.largeSizesRequireTwo)) {
+      r.largeSizesRequireTwo = (r.largeSizesRequireTwo as unknown[]).map((x) =>
+        x === `20"` ? `21"` : x === `10"` ? `12"` : x,
+      );
+    }
+  }
+  if (merged.simplifiedFallbackPlantSize === `10"`) {
+    merged.simplifiedFallbackPlantSize = `12"`;
+  }
+  if (merged.simplifiedFallbackPlantSize === `20"`) {
+    merged.simplifiedFallbackPlantSize = `21"`;
+  }
+}
+
 export function mergeWithLaborDefaults(
   partial: unknown,
 ): LaborEngineConfig {
@@ -181,6 +227,7 @@ export function mergeWithLaborDefaults(
     DEFAULT_LABOR_ENGINE_CONFIG as unknown as Record<string, unknown>,
     raw,
   );
+  migrateLegacyLaborBuckets(merged);
   return laborEngineConfigSchema.parse(merged);
 }
 

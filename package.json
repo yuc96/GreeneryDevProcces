@@ -12,10 +12,12 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "db:seed": "tsx scripts/db-seed.ts",
     "import:pots": "node scripts/import-jsc-pots.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.8.0",
+    "mongodb": "^6.21.0",
     "next": "15.2.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -26,10 +28,13 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^16.6.1",
     "eslint": "^9",
     "eslint-config-next": "15.2.9",
+    "mongodb-memory-server": "^10.4.3",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.4",
     "xlsx": "^0.18.5"

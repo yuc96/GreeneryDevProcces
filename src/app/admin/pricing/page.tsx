@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Calculator, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiJson } from "@/lib/api";
 import { toErrorMessage } from "@/lib/to-error-message";
+import { AdminCommissionDirectoryPanel } from "./AdminCommissionDirectoryPanel";
 import type {
   PricingEngineConfig,
   StagingRecipe,
@@ -133,7 +134,33 @@ function AdminPricingPageInner() {
     () => safeWizardReturnPath(searchParams.get("returnTo")),
     [searchParams],
   );
-  const backFromProposalFlow = Boolean(searchParams.get("returnTo")?.trim());
+  const returnToTargetsNewProposalWizard = returnToHref.includes(
+    "/maintenance/proposals/new",
+  );
+  const pricingBackLabel = returnToTargetsNewProposalWizard
+    ? "Back to Client information"
+    : "Back to proposals";
+  const pricingSaveReturnLabel = returnToTargetsNewProposalWizard
+    ? "Save and return to Client information"
+    : "Save and return to proposals";
+
+  const sectionView: "pricing" | "commissions" =
+    searchParams.get("view") === "commissions" ? "commissions" : "pricing";
+
+  const setSectionView = useCallback(
+    (next: "pricing" | "commissions") => {
+      const p = new URLSearchParams(searchParams.toString());
+      if (next === "pricing") {
+        p.delete("view");
+      } else {
+        p.set("view", "commissions");
+      }
+      const qs = p.toString();
+      router.replace(qs ? `/admin/pricing?${qs}` : "/admin/pricing");
+    },
+    [router, searchParams],
+  );
+
   const [cfg, setCfg] = useState<PricingEngineConfig>(DEFAULT_PRICING_ENGINE_CONFIG);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -167,34 +194,105 @@ function AdminPricingPageInner() {
     <div className="no-scrollbar h-screen overflow-y-auto bg-gray-50 px-4 py-10 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold text-[#2b7041] dark:text-emerald-400">
-              Proposal pricing settings
+              {sectionView === "pricing"
+                ? "Pricing & calculation"
+                : "Commission catalog"}
             </h1>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Use the tabs below to focus one area at a time. Values are saved to{" "}
-              <code className="rounded bg-gray-200 px-1 text-xs dark:bg-gray-800">
-                data/pricing-engine.config.json
-              </code>
-              .
+              {sectionView === "pricing" ? (
+                <>
+                  Freight, markups, labor, staging, and company defaults. Saved
+                  to{" "}
+                  <code className="rounded bg-gray-200 px-1 text-xs dark:bg-gray-800">
+                    data/pricing-engine.config.json
+                  </code>
+                  . Use the inner tabs to move between topics.
+                </>
+              ) : (
+                <>
+                  Everyone who can be chosen when commission is enabled on a
+                  proposal. Does not change prices or labor formulas.
+                </>
+              )}
             </p>
           </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-            <Link
-              href={returnToHref}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+          <Link
+            href={returnToHref}
+            className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 sm:w-auto dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden />
+            {pricingBackLabel}
+          </Link>
+        </div>
+
+        <div
+          className="rounded-xl border border-gray-200 bg-gray-100/90 p-1.5 dark:border-gray-800 dark:bg-gray-900/90"
+          role="tablist"
+          aria-label="Proposal administration sections"
+        >
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sectionView === "pricing"}
+              id="admin-section-pricing"
+              aria-controls="admin-section-pricing-panel"
+              onClick={() => setSectionView("pricing")}
+              className={`flex items-start gap-3 rounded-lg px-4 py-3 text-left text-sm font-semibold transition ${
+                sectionView === "pricing"
+                  ? "bg-white text-[#2b7041] shadow-sm dark:bg-gray-950 dark:text-emerald-400"
+                  : "text-gray-600 hover:bg-white/70 dark:text-gray-400 dark:hover:bg-gray-800/80"
+              }`}
             >
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              {backFromProposalFlow ? "Back to General" : "Back to proposals"}
-            </Link>
-            <Link
-              href="/admin/commission-beneficiaries"
-              className="text-center text-sm font-semibold text-[#2b7041] underline dark:text-emerald-400"
+              <Calculator
+                className="mt-0.5 h-5 w-5 shrink-0 opacity-90"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <span>
+                <span className="block">Pricing & calculation</span>
+                <span className="mt-0.5 block text-xs font-normal text-gray-500 dark:text-gray-500">
+                  Freight, markups, labor, staging, HQ
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sectionView === "commissions"}
+              id="admin-section-commissions"
+              aria-controls="admin-section-commissions-panel"
+              onClick={() => setSectionView("commissions")}
+              className={`flex items-start gap-3 rounded-lg px-4 py-3 text-left text-sm font-semibold transition ${
+                sectionView === "commissions"
+                  ? "bg-white text-[#2b7041] shadow-sm dark:bg-gray-950 dark:text-emerald-400"
+                  : "text-gray-600 hover:bg-white/70 dark:text-gray-400 dark:hover:bg-gray-800/80"
+              }`}
             >
-              Commission beneficiaries
-            </Link>
+              <Users
+                className="mt-0.5 h-5 w-5 shrink-0 opacity-90"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <span>
+                <span className="block">Commission catalog</span>
+                <span className="mt-0.5 block text-xs font-normal text-gray-500 dark:text-gray-500">
+                  People available on proposals
+                </span>
+              </span>
+            </button>
           </div>
         </div>
+
+        {sectionView === "pricing" ? (
+        <div
+          id="admin-section-pricing-panel"
+          role="tabpanel"
+          aria-labelledby="admin-section-pricing"
+          className="space-y-6"
+        >
         {err ? (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
             {err}
@@ -433,11 +531,16 @@ function AdminPricingPageInner() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-            Rotations (P2 / P3)
+            Rotations (GUTS §8)
           </h2>
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            P2 labor uses plants/hour capacity; orchids default to a higher rate.
+            P3 is freight as a percent of rotation catalog retail (not truck
+            tables).
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm">
-              Plants per hour
+              Plants per hour (non-orchid)
               <input
                 type="number"
                 step={1}
@@ -455,8 +558,68 @@ function AdminPricingPageInner() {
                 }
               />
             </label>
+            <label className="text-sm">
+              Plants per hour (orchids)
+              <input
+                type="number"
+                step={1}
+                min={1}
+                className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
+                value={cfg.rotationOrchidPlantsPerHour}
+                onChange={(e) =>
+                  setCfg((c) => ({
+                    ...c,
+                    rotationOrchidPlantsPerHour: Math.max(
+                      1,
+                      Number(e.target.value) || 1,
+                    ),
+                  }))
+                }
+              />
+            </label>
+            <label className="text-sm">
+              Rotation labor hourly rate ($) — P2
+              <input
+                type="number"
+                step={1}
+                min={0}
+                className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
+                value={cfg.rotationLaborHourlyRate}
+                onChange={(e) =>
+                  setCfg((c) => ({
+                    ...c,
+                    rotationLaborHourlyRate: Math.max(
+                      0,
+                      Number(e.target.value) || 0,
+                    ),
+                  }))
+                }
+              />
+            </label>
+            <label className="text-sm">
+              Rotation freight on catalog retail — P3 ({pct(cfg.rotationFreightPct)})
+              <input
+                type="number"
+                step={0.01}
+                min={0}
+                max={1}
+                className="mt-1 w-full rounded border border-gray-200 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
+                value={cfg.rotationFreightPct}
+                onChange={(e) =>
+                  setCfg((c) => ({
+                    ...c,
+                    rotationFreightPct: Math.min(
+                      1,
+                      Math.max(0, Number(e.target.value) || 0),
+                    ),
+                  }))
+                }
+              />
+            </label>
             <div className="text-sm sm:col-span-2">
-              <p className="mb-2 font-semibold">Truck fee by total plants</p>
+              <p className="mb-2 font-semibold">
+                Truck fee ranges (legacy UI / proposals; not used in GUTS P1–P3)
+              </p>
               <div className="overflow-x-auto rounded border border-gray-200 dark:border-gray-700">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 dark:bg-gray-900">
@@ -1442,7 +1605,7 @@ function AdminPricingPageInner() {
             onClick={() => void save()}
             className="rounded-lg bg-[#2b7041] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#235a37] disabled:opacity-50"
           >
-            {busy ? "Saving…" : "Save and return to General"}
+            {busy ? "Saving…" : pricingSaveReturnLabel}
           </button>
           <button
             type="button"
@@ -1452,6 +1615,18 @@ function AdminPricingPageInner() {
             Reset form to code defaults
           </button>
         </div>
+        </div>
+        ) : (
+          <div
+            id="admin-section-commissions-panel"
+            role="tabpanel"
+            aria-labelledby="admin-section-commissions"
+            className="space-y-6"
+          >
+            <AdminCommissionDirectoryPanel embedded />
+          </div>
+        )}
+
       </div>
     </div>
   );

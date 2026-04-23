@@ -18,7 +18,12 @@ export interface Client {
   companyName: string;
   contactName: string;
   email: string;
+  /** Contact direct / mobile. */
   phone?: string;
+  /** Main company / office line. */
+  companyPhone?: string;
+  /** Company-side contact (reception, office, department). */
+  companyContact?: string;
   /** From QuickBooks / CRM: repeat buyer — only Additional sale & Replacement. */
   isExistingCustomer?: boolean;
   /** Optional manual drive time (one-way, in minutes) from Greenery HQ to this client. */
@@ -106,6 +111,15 @@ export interface ProposalItemInput {
   relatedPlantItemId?: string;
   /** Staging only: material preview image (URL). */
   stagingImageUrl?: string;
+  /** Plants auto-built from a client requirement row (removed with that row). */
+  sourceRequirementLineId?: string;
+  /** Pots auto-built from requirement pot types (rebuilt when requirements change). */
+  fromRequirementsPot?: boolean;
+  /**
+   * Plants only: user dismissed the catalog suggested thumbnail on the Photos step.
+   * When true, we do not auto-embed the suggested image on save.
+   */
+  plantPhotoSuggestedDismissed?: boolean;
 }
 
 export type ProposalLaborLineKey =
@@ -221,7 +235,15 @@ export interface SummaryResponse {
     sentAt?: string;
     approvedAt?: string;
   };
-  client: { name: string; email: string; phone?: string };
+  client: {
+    name: string;
+    /** Primary contact person from the client catalog (not edited per proposal). */
+    contactName: string;
+    email: string;
+    phone?: string;
+    companyPhone?: string;
+    companyContact?: string;
+  };
   location: { name: string; address?: string } | null;
   calculations: {
     totals: {

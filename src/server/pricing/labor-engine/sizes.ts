@@ -1,15 +1,15 @@
 import type { LaborPlantSize } from "../labor-engine-schema";
 
-const ORDER_INCHES = [4, 6, 8, 10, 14, 17, 20, 24] as const;
+const ORDER_INCHES = [4, 6, 8, 12, 14, 17, 21, 24] as const;
 
 const INCH_TO_LABEL: Record<number, LaborPlantSize> = {
   4: `4"`,
   6: `6"`,
   8: `8"`,
-  10: `10"`,
+  12: `12"`,
   14: `14"`,
   17: `17"`,
-  20: `20"`,
+  21: `21"`,
   24: `24"`,
 };
 

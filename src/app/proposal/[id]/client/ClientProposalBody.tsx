@@ -2,8 +2,6 @@
 
 import { useMemo } from "react";
 import Image from "next/image";
-import plantReferenceCatalog from "@/data/plant-reference-images.json";
-import { catalogEntriesForPhotoPicker } from "@/lib/plant-reference-images";
 import type { SummaryResponse } from "@/lib/types";
 
 const money = new Intl.NumberFormat("en-US", {
@@ -48,18 +46,52 @@ function maintenanceProgramLabel(
   return "Tier 3";
 }
 
-function PlantPhotoThumb({ src, alt }: { src: string; alt: string }) {
-  // eslint-disable-next-line @next/next/no-img-element -- data URLs from builder or same-origin catalog paths
-  return <img src={src} alt={alt} className="plant-card-photo" />;
+/** Same-origin paths or absolute URLs for proposal photos (data URLs are most common). */
+function clientProposalPhotoSrc(src: string): string {
+  const t = src.trim();
+  if (
+    t.startsWith("data:") ||
+    t.startsWith("http:") ||
+    t.startsWith("https:") ||
+    t.startsWith("blob:")
+  ) {
+    return t;
+  }
+  if (typeof window !== "undefined") {
+    try {
+      return new URL(t, window.location.origin).href;
+    } catch {
+      return t;
+    }
+  }
+  return t;
 }
 
-function pickCatalogFallbackPath(plantLineName: string): string | null {
-  const picks = catalogEntriesForPhotoPicker(
-    plantLineName,
-    "",
-    plantReferenceCatalog.plants,
+function PlantPhotoThumb({
+  src,
+  alt,
+  badge,
+}: {
+  src: string;
+  alt: string;
+  badge?: string;
+}) {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- data URLs from builder or same-origin catalog paths */}
+      <img
+        src={clientProposalPhotoSrc(src)}
+        alt={alt}
+        className="plant-card-photo"
+        loading="lazy"
+      />
+      {badge ? (
+        <span className="plant-photo-grid-badge" aria-hidden="true">
+          {badge}
+        </span>
+      ) : null}
+    </>
   );
-  return picks.find((p) => p.imagePublicPath)?.imagePublicPath ?? null;
 }
 
 function plantPhotoGroupMeta(
@@ -75,17 +107,16 @@ function plantPhotoGroupMeta(
 function PlantPhotoGroup({
   row,
   includeAreaInMeta,
-  fallbackCatalogSrc,
 }: {
   row: SummaryResponse["items"][number];
   includeAreaInMeta: boolean;
-  fallbackCatalogSrc?: string | null;
 }) {
   if (row.category !== "plant") return null;
   const label = displayPlantLabel(row.name);
   const meta = plantPhotoGroupMeta(row, includeAreaInMeta);
-  const photos = row.photos ?? [];
-  if (!photos.length && !fallbackCatalogSrc) {
+  const userPhotos = row.photos ?? [];
+
+  if (userPhotos.length === 0) {
     return (
       <div className="plant-photo-group plant-photo-group--text-only">
         <p className="plant-photo-group-title">{label}</p>
@@ -93,40 +124,28 @@ function PlantPhotoGroup({
       </div>
     );
   }
-  if (!photos.length && fallbackCatalogSrc) {
-    return (
-      <div className="plant-photo-group">
-        <div className="plant-photo-group-header">
-          <p className="plant-photo-group-title">{label}</p>
-          <p className="plant-photo-group-meta">
-            {meta} · Greenery catalog reference
-          </p>
-        </div>
-        <div className="plant-photo-grid">
-          <div className="plant-photo-grid-cell">
-            <PlantPhotoThumb
-              src={fallbackCatalogSrc}
-              alt={`${label}, Greenery catalog reference`}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
+
   return (
     <div className="plant-photo-group">
       <div className="plant-photo-group-header">
         <p className="plant-photo-group-title">{label}</p>
         <p className="plant-photo-group-meta">{meta}</p>
       </div>
-      <div className="plant-photo-grid">
-        {photos.map((src, i) => (
-          <div key={i} className="plant-photo-grid-cell">
+      <div
+        className={`plant-photo-grid${
+          userPhotos.length === 1 ? " plant-photo-grid--single" : ""
+        }`}
+      >
+        {userPhotos.map((src, i) => (
+          <figure key={`u-${i}`} className="plant-photo-grid-cell">
             <PlantPhotoThumb
               src={src}
-              alt={`${label}, reference photo ${i + 1}`}
+              alt={`${label}, site photo ${i + 1}`}
             />
-          </div>
+            <figcaption className="plant-photo-grid-caption">
+              {`Photo ${i + 1}`}
+            </figcaption>
+          </figure>
         ))}
       </div>
     </div>
@@ -152,27 +171,22 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
     (n, p) => n + (p.photos?.length ?? 0),
     0,
   );
-  const catalogFallbackByPlantId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of plants) {
-      if ((p.photos?.length ?? 0) > 0) continue;
-      const path = pickCatalogFallbackPath(p.name);
-      if (path) m.set(p.id, path);
-    }
-    return m;
-  }, [plants]);
-  const catalogFallbackCount = catalogFallbackByPlantId.size;
   const today = new Date().toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
   const contact =
-    data.proposal.contactName?.trim() || "—";
+    data.client.contactName?.trim() ||
+    data.proposal.contactName?.trim() ||
+    "—";
   const submitted =
     data.proposal.submittedBy?.trim() || "—";
-  const phone =
-    data.client.phone?.trim() || "—";
+  const contactPhone = data.client.phone?.trim() || "—";
+  const companyPhone = data.client.companyPhone?.trim() || "—";
+  const companyContact =
+    data.client.companyContact?.trim() || "—";
+  const clientEmail = data.client.email?.trim() || "—";
   const jobLocation = data.location?.name || "—";
 
   return (
@@ -240,8 +254,14 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
               <div className="grid grid-cols-2 gap-y-0.5 text-[11px]">
                 <span className="font-bold text-gray-500">Contact:</span>
                 <span>{contact}</span>
-                <span className="font-bold text-gray-500">Phone:</span>
-                <span>{phone}</span>
+                <span className="font-bold text-gray-500">Email:</span>
+                <span>{clientEmail}</span>
+                <span className="font-bold text-gray-500">Contact phone:</span>
+                <span>{contactPhone}</span>
+                <span className="font-bold text-gray-500">Company contact:</span>
+                <span>{companyContact}</span>
+                <span className="font-bold text-gray-500">Company phone:</span>
+                <span>{companyPhone}</span>
                 <span className="font-bold text-gray-500">Job Location:</span>
                 <span>{jobLocation}</span>
                 <span className="font-bold text-gray-500">Submitting By:</span>
@@ -334,10 +354,8 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
           <div className="plant-gallery-wrap w-full">
             <p className="mb-2 text-[10px] leading-snug text-gray-500">
               {totalPlantPhotos > 0
-                ? `${totalPlantPhotos} reference photo(s) from this proposal appear below, grouped by plant with every uploaded image. Labels match the schedule.`
-                : catalogFallbackCount > 0
-                  ? "No custom photos were saved on this proposal. Below, Greenery catalog reference images are shown where the plant line matches the internal library (same matching logic as the builder photo picker)."
-                  : "No reference photos were added in the proposal and no catalog match was found for some lines. The blocks show plant names only; upload photos in the builder or add catalog photos on the Photos step."}
+                ? "Photos below are the reference images attached to this proposal in the builder (Plant Photos step). Labels match the schedule."
+                : "No photos were attached for plant lines in this proposal. Each block shows the plant name and schedule details only. Add images in the proposal wizard on the Plant Photos step."}
             </p>
 
             <div
@@ -354,7 +372,6 @@ export function ClientProposalBody({ data }: { data: SummaryResponse }) {
                     key={row.id}
                     row={row}
                     includeAreaInMeta
-                    fallbackCatalogSrc={catalogFallbackByPlantId.get(row.id)}
                   />
                 ))
               )}

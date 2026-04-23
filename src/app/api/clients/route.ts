@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getClientsStore } from "@/server/clients-store";
+import * as clientsStore from "@/server/clients-store";
 import { handleRouteError } from "@/server/route-utils";
 
-export function GET() {
+export async function GET() {
   try {
-    return NextResponse.json(getClientsStore().findAll());
+    return NextResponse.json(await clientsStore.listClients());
   } catch (e) {
     return handleRouteError(e);
   }
@@ -17,11 +17,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
     }
     const b = body as Record<string, unknown>;
-    const created = getClientsStore().create({
+    const created = await clientsStore.createClient({
       companyName: String(b.companyName ?? ""),
       contactName: String(b.contactName ?? ""),
       email: String(b.email ?? ""),
       phone: b.phone != null ? String(b.phone) : undefined,
+      companyPhone: String(b.companyPhone ?? ""),
+      companyContact: String(b.companyContact ?? ""),
       billingAddress:
         b.billingAddress != null ? String(b.billingAddress) : undefined,
       driveTimeMinutes:

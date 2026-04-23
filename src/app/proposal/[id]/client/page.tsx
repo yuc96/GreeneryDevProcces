@@ -1,20 +1,7 @@
-import { notFound } from "next/navigation";
 import { PrintBar } from "@/components/PrintBar";
-import { HttpError } from "@/server/http-error";
-import { getProposalsStore } from "@/server/proposals-store";
-import type { SummaryResponse } from "@/lib/types";
-import { ClientProposalBody } from "./ClientProposalBody";
+import { ClientProposalLoader } from "./ClientProposalLoader";
 
 export const dynamic = "force-dynamic";
-
-function loadSummary(id: string): SummaryResponse {
-  try {
-    return getProposalsStore().getSummary(id) as SummaryResponse;
-  } catch (e) {
-    if (e instanceof HttpError && e.status === 404) notFound();
-    throw e;
-  }
-}
 
 export default async function ClientProposalPage({
   params,
@@ -22,7 +9,6 @@ export default async function ClientProposalPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const data = loadSummary(id);
 
   return (
     <>
@@ -33,7 +19,7 @@ export default async function ClientProposalPage({
         <PrintBar />
       </div>
 
-      <ClientProposalBody data={data} />
+      <ClientProposalLoader proposalId={id} />
     </>
   );
 }

@@ -6,6 +6,7 @@ import {
   computeRotationMonthly,
   defaultLaborLines,
   installMinutesForInches,
+  pickDefaultRotationCatalogPrice,
   truckFeeForPlantCount,
 } from "./compute-proposal";
 import { parseSizeInchesFromText } from "./cpp-model";
@@ -26,21 +27,46 @@ const baseItem = (
 });
 
 describe("computeRotationMonthly", () => {
-  it("matches doc structure P1+P2+P3", () => {
+  it("matches GUTS P1 + P2 (capacity labor) + P3 (freight on rotation retail)", () => {
     const line = {
       qty: 15,
       frequencyWeeks: 8 as const,
       rotationUnitPrice: 32,
-      truckFee: 25 as const,
+      truckFee: 0 as const,
+      plantName: "Bromeliads (6\")",
     };
-    const { p1, p2, p3, monthly } = computeRotationMonthly(
-      line,
-      DEFAULT_PRICING_ENGINE_CONFIG,
-    );
-    expect(p1).toBeCloseTo((15 * 32 * 8) / 12, 5);
-    expect(p2).toBeCloseTo((((15 / 15) * 8) / 12) * 35, 5);
-    expect(p3).toBeCloseTo((((15 / 15) * 8) / 12) * 25, 5);
+    const cfg = DEFAULT_PRICING_ENGINE_CONFIG;
+    const { p1, p2, p3, monthly } = computeRotationMonthly(line, cfg);
+    const f = 8;
+    expect(p1).toBeCloseTo((15 * 32 * f) / 12, 5);
+    expect(p2).toBeCloseTo((((15 / cfg.rotationPlantsPerHour) * f) / 12) * cfg.rotationLaborHourlyRate, 5);
+    expect(p3).toBeCloseTo((15 * 32 * cfg.rotationFreightPct * f) / 12, 5);
     expect(monthly).toBeCloseTo(p1 + p2 + p3, 5);
+  });
+
+  it("uses higher plants/hour for orchid rotation lines (GUTS)", () => {
+    const cfg = DEFAULT_PRICING_ENGINE_CONFIG;
+    const bro = computeRotationMonthly(
+      {
+        qty: 20,
+        frequencyWeeks: 8 as const,
+        rotationUnitPrice: 10,
+        truckFee: 0 as const,
+        plantName: "Bromeliads (4\")",
+      },
+      cfg,
+    );
+    const orch = computeRotationMonthly(
+      {
+        qty: 20,
+        frequencyWeeks: 8 as const,
+        rotationUnitPrice: 10,
+        truckFee: 0 as const,
+        plantName: "Orchid — Single Spike (6\")",
+      },
+      cfg,
+    );
+    expect(orch.p2).toBeLessThan(bro.p2);
   });
 });
 
@@ -59,6 +85,56 @@ describe("parseSizeInchesFromText", () => {
   });
 });
 
+describe("pickDefaultRotationCatalogPrice", () => {
+  const cfg = DEFAULT_PRICING_ENGINE_CONFIG;
+
+  it("matches orchid spike variant and pot size", () => {
+    expect(
+      pickDefaultRotationCatalogPrice('Orchid — Single Spike (4")', cfg),
+    ).toBe(24);
+    expect(
+      pickDefaultRotationCatalogPrice('Orchid — Single Spike (6")', cfg),
+    ).toBe(32);
+    expect(
+      pickDefaultRotationCatalogPrice('Orchid — Double Spike (6")', cfg),
+    ).toBe(38.75);
+  });
+
+  it("matches bromeliad size including 14 inch row", () => {
+    expect(pickDefaultRotationCatalogPrice('Bromeliads (4")', cfg)).toBe(11.5);
+    expect(pickDefaultRotationCatalogPrice('Bromeliads (14")', cfg)).toBe(200);
+  });
+
+  it("matches succulent table row and prefers neutral variant at 6 inch", () => {
+    expect(pickDefaultRotationCatalogPrice('Succulent (2")', cfg)).toBe(4);
+    expect(pickDefaultRotationCatalogPrice('Succulent (6")', cfg)).toBe(24);
+  });
+
+  it("matches color rotation annual and mum", () => {
+    expect(
+      pickDefaultRotationCatalogPrice('Color rotation — Annual (6")', cfg),
+    ).toBe(13.75);
+    expect(
+      pickDefaultRotationCatalogPrice('Color rotation — Mum (6")', cfg),
+    ).toBe(18.75);
+  });
+
+  it("treats Color Bowl as color rotation annual pricing", () => {
+    expect(pickDefaultRotationCatalogPrice('Color Bowl (8")', cfg)).toBe(18.75);
+  });
+
+  it("matches Lady Jane and generic orchid to single spike when size is ambiguous", () => {
+    expect(pickDefaultRotationCatalogPrice('Lady Jane (6")', cfg)).toBe(32);
+    expect(pickDefaultRotationCatalogPrice('Orchids (6")', cfg)).toBe(32);
+  });
+
+  it("matches Spanish orchid label", () => {
+    expect(
+      pickDefaultRotationCatalogPrice('Orquídea — Single Spike (4")', cfg),
+    ).toBe(24);
+  });
+});
+
 describe("installMinutesForInches (labor install table)", () => {
   it("snaps 12 inch to nearest bucket (10 inch = 2 min per plant)", () => {
     expect(installMinutesForInches(12, DEFAULT_PRICING_ENGINE_CONFIG)).toBe(2);
@@ -66,13 +142,9 @@ describe("installMinutesForInches (labor install table)", () => {
   it("uses 6 inch bucket for 6 inches", () => {
     expect(installMinutesForInches(6, DEFAULT_PRICING_ENGINE_CONFIG)).toBe(1);
   });
-  it("uses fallback pot size when diameter is missing", () => {
-    expect(
-      installMinutesForInches(null, DEFAULT_PRICING_ENGINE_CONFIG),
-    ).toBe(
-      DEFAULT_LABOR_ENGINE_CONFIG.INSTALL_MINUTES_PER_PLANT[
-        DEFAULT_LABOR_ENGINE_CONFIG.simplifiedFallbackPlantSize
-      ],
+  it("uses pricing default minutes when diameter is missing", () => {
+    expect(installMinutesForInches(null, DEFAULT_PRICING_ENGINE_CONFIG)).toBe(
+      DEFAULT_PRICING_ENGINE_CONFIG.installMinutesDefault,
     );
   });
 });
@@ -82,7 +154,7 @@ describe("computeProposal integration", () => {
     const items: ProposalItemEntity[] = [
       baseItem({
         category: "plant",
-        name: 'Test (10")',
+        name: 'Test (12")',
         qty: 2,
         wholesaleCost: 10,
         markup: 2,
@@ -139,7 +211,7 @@ describe("computeProposal integration", () => {
     const items: ProposalItemEntity[] = [
       baseItem({
         category: "plant",
-        name: 'Direct planting (10")',
+        name: 'Direct planting (12")',
         qty: 3,
         wholesaleCost: 20,
         markup: 2,

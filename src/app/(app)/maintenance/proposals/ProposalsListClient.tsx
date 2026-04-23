@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, Plus } from "lucide-react";
+import { Eye, Plus, Settings } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
 import type { ProposalsListResponse, ProposalListSummaryRow } from "@/lib/types";
@@ -83,13 +83,22 @@ export function ProposalsListClient() {
               Create and manage indoor plant proposals.
             </p>
           </div>
-          <Link
-            href="/maintenance/proposals/new"
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-sm ${PRIMARY_CLASS}`}
-          >
-            <Plus className="h-4 w-4" strokeWidth={2.5} />
-            New Proposal
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/admin/pricing?returnTo=${encodeURIComponent("/maintenance/proposals")}`}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+            >
+              <Settings className="h-4 w-4" strokeWidth={2} aria-hidden />
+              Proposal settings
+            </Link>
+            <Link
+              href="/maintenance/proposals/new"
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-sm ${PRIMARY_CLASS}`}
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              New Proposal
+            </Link>
+          </div>
         </div>
 
         {error ? (

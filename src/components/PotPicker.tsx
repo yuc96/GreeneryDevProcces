@@ -129,11 +129,11 @@ export function PotPicker({
   return (
     <div ref={rootRef} className={`relative ${className}`}>
       <div
-        className={`flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm shadow-sm focus-within:border-[#2b7041] dark:border-gray-700 dark:bg-gray-950 ${
-          disabled ? "opacity-50" : ""
+        className={`flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 dark:border-slate-700 dark:bg-[#0B1120] ${
+          disabled ? "cursor-not-allowed opacity-50" : ""
         }`}
       >
-        <Search className="h-4 w-4 shrink-0 text-gray-400" />
+        <Search className="h-4 w-4 shrink-0 text-gray-400 dark:text-slate-500" />
         {open ? (
           <input
             ref={inputRef}
@@ -143,7 +143,7 @@ export function PotPicker({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
-            className="min-w-0 flex-1 bg-transparent outline-none"
+            className="min-w-0 flex-1 bg-transparent text-gray-900 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-slate-500"
           />
         ) : (
           <button
@@ -153,10 +153,14 @@ export function PotPicker({
               setOpen(true);
               setTimeout(() => inputRef.current?.focus(), 0);
             }}
-            className="min-w-0 flex-1 truncate text-left text-sm text-gray-800 dark:text-gray-100"
+            className="min-w-0 flex-1 truncate text-left text-sm"
           >
-            {displayLabel || (
-              <span className="text-gray-400">{placeholder}</span>
+            {displayLabel ? (
+              <span className="text-gray-900 dark:text-white">{displayLabel}</span>
+            ) : (
+              <span className="text-gray-400 dark:text-slate-500">
+                {placeholder}
+              </span>
             )}
           </button>
         )}
@@ -164,7 +168,7 @@ export function PotPicker({
           <button
             type="button"
             onClick={() => onChange("")}
-            className="rounded p-0.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800"
+            className="rounded p-0.5 text-gray-400 transition hover:text-gray-700 dark:text-slate-500 dark:hover:text-slate-300"
             aria-label="Clear selection"
           >
             <X className="h-3.5 w-3.5" />
@@ -173,25 +177,25 @@ export function PotPicker({
       </div>
 
       {open && !disabled ? (
-        <div className="absolute z-20 mt-1 max-h-80 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-950">
+        <div className="catalog-combobox-scroll absolute z-[100] mt-1 max-h-80 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-[#151E32]">
           {plantBand ? (
-            <div className="sticky top-0 flex items-center justify-between gap-2 border-b border-gray-100 bg-emerald-50/70 px-3 py-1.5 text-[11px] text-emerald-800 dark:border-gray-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <div className="sticky top-0 flex items-center justify-between gap-2 border-b border-gray-200 bg-emerald-50/90 px-3 py-1.5 text-[11px] text-emerald-900 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-800/80 dark:text-emerald-300">
               <span>
                 Filtering by <strong>{plantBand.label}</strong> (
-                {plantBand.min ?? "≤"}–{plantBand.max ?? "+"}&quot; inches)
-                {showAllSizes ? " - showing all sizes" : ""}
+                {plantBand.min ?? "≤"}–{plantBand.max ?? "+"}&quot;)
+                {showAllSizes ? " — all sizes" : ""}
               </span>
               <button
                 type="button"
                 onClick={() => setShowAllSizes((s) => !s)}
-                className="shrink-0 rounded border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-gray-900 dark:text-emerald-200 dark:hover:bg-gray-800"
+                className="shrink-0 rounded border border-emerald-600/50 bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-slate-900 dark:text-emerald-300 dark:hover:bg-slate-800"
               >
                 {showAllSizes ? "Only this band" : "Show all sizes"}
               </button>
             </div>
           ) : null}
           {totalItems === 0 ? (
-            <div className="px-3 py-4 text-center text-xs text-gray-500">
+            <div className="px-3 py-4 text-center text-xs text-gray-500 dark:text-slate-500">
               {plantBand && !showAllSizes
                 ? `No pots found in ${plantBand.label}. Enable "Show all sizes".`
                 : `No pots match "${query}"`}
@@ -206,24 +210,24 @@ export function PotPicker({
                       type="button"
                       onMouseEnter={() => setHighlight(idx)}
                       onClick={() => pickPot(p)}
-                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                         active
-                          ? "bg-emerald-50 text-[#2b7041] dark:bg-emerald-950/50 dark:text-emerald-200"
-                          : "text-gray-800 dark:text-gray-100"
+                          ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-600/20 dark:text-emerald-300"
+                          : "text-gray-800 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-700/50"
                       }`}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">
+                        <span className="block truncate font-medium text-gray-900 dark:text-white">
                           {p.name}
                         </span>
-                        <span className="block truncate text-[11px] text-gray-500">
+                        <span className="block truncate text-[11px] text-gray-500 dark:text-slate-500">
                           {[p.family, p.kind, p.exteriorSize]
                             .filter(Boolean)
                             .join(" · ")}
                         </span>
                       </span>
                       {typeof p.sizeInches === "number" ? (
-                        <span className="shrink-0 text-xs text-gray-500">
+                        <span className="shrink-0 text-xs text-gray-500 dark:text-slate-500">
                           {p.sizeInches}&quot;
                         </span>
                       ) : null}
@@ -233,7 +237,7 @@ export function PotPicker({
               })}
               {extrasFiltered.length ? (
                 <>
-                  <li className="border-t border-gray-100 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-800">
+                  <li className="border-t border-gray-200 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:border-slate-700 dark:text-slate-500">
                     Special
                   </li>
                   {extrasFiltered.map((o, i) => {
@@ -245,13 +249,15 @@ export function PotPicker({
                           type="button"
                           onMouseEnter={() => setHighlight(idx)}
                           onClick={() => pickExtra(o)}
-                          className={`flex w-full items-center px-3 py-1.5 text-left ${
+                          className={`flex w-full items-center px-3 py-1.5 text-left transition-colors ${
                             active
-                              ? "bg-emerald-50 text-[#2b7041] dark:bg-emerald-950/50 dark:text-emerald-200"
-                              : "text-gray-800 dark:text-gray-100"
+                              ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-600/20 dark:text-emerald-300"
+                              : "text-gray-800 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-700/50"
                           }`}
                         >
-                          <span className="font-medium">{o}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {o}
+                          </span>
                         </button>
                       </li>
                     );
