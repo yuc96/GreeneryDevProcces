@@ -197,9 +197,8 @@ export async function updateClient(
 
   const db = await getMongoDb();
   const col = asDocCollection(db, COL.clients);
-  const { id: _id, ...rest } = updated;
   await col.updateOne(filterById(id), {
-    $set: { ...rest },
+    $set: { ...updated },
   });
   return updated;
 }
@@ -244,8 +243,7 @@ export async function addClientLocation(
   };
   const db = await getMongoDb();
   const col = asDocCollection(db, COL.clients);
-  const { id: _id, ...rest } = updated;
-  await col.updateOne(filterById(clientId), { $set: { ...rest } });
+  await col.updateOne(filterById(clientId), { $set: { ...updated } });
   return { client: updated, location: newLoc };
 }
 
@@ -285,7 +283,6 @@ export async function updateClientLocation(
   };
   const db = await getMongoDb();
   const col = asDocCollection(db, COL.clients);
-  const { id: _id, ...rest } = updated;
-  await col.updateOne(filterById(clientId), { $set: { ...rest } });
+  await col.updateOne(filterById(clientId), { $set: { ...updated } });
   return { client: updated, location: next };
 }
