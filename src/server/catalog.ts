@@ -1,5 +1,5 @@
 import potsCatalogJson from "@/data/pots-catalog.json";
-import plantReferenceJson from "@/data/plant-reference-images.json";
+import { buildPlantCatalogDocuments } from "@/infrastructure/seed/plant-catalog-builder";
 
 export interface GrowerOption {
   id: string;
@@ -27,117 +27,42 @@ export interface PlantCatalogEntry {
  * keep grower/supplier addresses in Central Florida (<= 80km target radius).
  */
 
-const DEFAULT_GROWERS: GrowerOption[] = [
-  {
-    id: "g1",
-    name: "Sunshine Nurseries",
-    price: 0,
-    address: "2525 Clarcona Rd, Apopka, FL 32703",
-  },
-  {
-    id: "g2",
-    name: "Green Leaf Farms",
-    price: 0,
-    address: "610 Garden Commerce Pkwy, Winter Garden, FL",
-  },
-  {
-    id: "g3",
-    name: "Exotic Botanicals",
-    price: 0,
-    address: "890 Plant District Rd, Sanford, FL",
-  },
-];
-
-function pseudoGrowersFor(code: string, basePrice: number): GrowerOption[] {
-  let h = 0;
-  for (let i = 0; i < code.length; i++) {
-    h = (h * 31 + code.charCodeAt(i)) >>> 0;
-  }
-  const shifts = [0, 0.08, 0.16];
-  const picks: GrowerOption[] = [];
-  for (let i = 0; i < DEFAULT_GROWERS.length; i++) {
-    const g = DEFAULT_GROWERS[(h + i) % DEFAULT_GROWERS.length];
-    if (picks.some((p) => p.id === g.id)) continue;
-    picks.push({
-      ...g,
-      price: Number((basePrice * (1 + shifts[i % shifts.length])).toFixed(2)),
-    });
-    if (picks.length >= 2 + ((h >> 3) % 2)) break;
-  }
-  return picks;
-}
-
-/** Rough wholesale price band by pot size for the pseudo-grower seed. */
-function estimatePlantBasePrice(sizeInches: number | null | undefined): number {
-  if (!sizeInches) return 28;
-  if (sizeInches <= 6) return 14;
-  if (sizeInches <= 10) return 22;
-  if (sizeInches <= 14) return 38;
-  if (sizeInches <= 20) return 65;
-  return 95;
-}
-
 function buildSearchKey(parts: Array<string | undefined | null>): string {
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
-const PLANT_REFERENCE = plantReferenceJson as {
-  plants: Array<{
-    catalogCode: string;
-    selectionSheet?: string;
-    commonName: string;
-    scientificName?: string;
-    imageFile?: string;
-    imagePublicPath?: string;
-  }>;
-};
-
-/** Approximate size-per-plant mapping so labor/pot-matching can infer a band. */
-const DEFAULT_SIZE_INCHES_BY_SELECTION: Record<string, number> = {
-  SELECTION_C: 14,
-  SHEET_2: 10,
-  SHEET_3: 14,
-  SHEET_4: 17,
-  SHEET_5: 10,
-  SHEET_6: 8,
-};
-
-/** Only Orchids at 17" are flagged for rotation in seed data; sync still requires keyword + this flag. */
-function seedRequiresRotationForCatalogEntry(
-  commonName: string,
-  sizeInches: number,
-): boolean {
-  const n = commonName.trim().toLowerCase();
-  if (!n.includes("orchid")) return false;
-  return sizeInches === 17;
+/** Same shape as Mongo `readPlantCatalogEntries`: one API row per species × canonical size. */
+function buildFlatPlantCatalogFromReference(): PlantCatalogEntry[] {
+  const out: PlantCatalogEntry[] = [];
+  for (const doc of buildPlantCatalogDocuments()) {
+    const code = doc.catalogCode;
+    for (const v of doc.variants) {
+      out.push({
+        id: `plant-${code.toLowerCase()}-${v.sizeInches}`,
+        name: doc.commonName,
+        commonName: doc.commonName,
+        scientificName: doc.scientificName,
+        size: `${v.sizeInches}"`,
+        sizeInches: v.sizeInches,
+        searchKey: v.searchKey,
+        imagePublicPath: doc.imagePublicPath ?? null,
+        catalogCode: code,
+        requiresRotation: v.requiresRotation,
+        growers: v.growers,
+      });
+    }
+  }
+  out.sort((a, b) => {
+    const an = (a.commonName || a.name).toLowerCase();
+    const bn = (b.commonName || b.name).toLowerCase();
+    const c = an.localeCompare(bn, undefined, { sensitivity: "base" });
+    if (c !== 0) return c;
+    return (a.sizeInches ?? 0) - (b.sizeInches ?? 0);
+  });
+  return out;
 }
 
-const plants: PlantCatalogEntry[] = PLANT_REFERENCE.plants.map((p) => {
-  const inches =
-    DEFAULT_SIZE_INCHES_BY_SELECTION[p.selectionSheet ?? ""] ?? 12;
-  const basePrice = estimatePlantBasePrice(inches);
-  const growers = pseudoGrowersFor(p.catalogCode, basePrice);
-  return {
-    id: `plant-${p.catalogCode.toLowerCase()}`,
-    name: p.commonName,
-    commonName: p.commonName,
-    scientificName: p.scientificName,
-    size: `${inches}"`,
-    sizeInches: inches,
-    requiresRotation: seedRequiresRotationForCatalogEntry(p.commonName, inches),
-    catalogCode: p.catalogCode,
-    imagePublicPath: p.imagePublicPath ?? null,
-    searchKey: buildSearchKey([
-      p.commonName,
-      p.scientificName,
-      p.catalogCode,
-      p.selectionSheet,
-    ]),
-    growers: growers.length
-      ? growers
-      : [{ ...DEFAULT_GROWERS[0], price: basePrice }],
-  };
-});
+const plants: PlantCatalogEntry[] = buildFlatPlantCatalogFromReference();
 
 export function listPlants(): PlantCatalogEntry[] {
   return plants;

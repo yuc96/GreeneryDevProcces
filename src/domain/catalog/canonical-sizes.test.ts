@@ -8,7 +8,7 @@ import {
 describe("canonical pot sizes", () => {
   it("exports the fixed inch set", () => {
     expect([...CANONICAL_POT_SIZES_INCHES]).toEqual([
-      2, 3, 4, 6, 8, 12, 14, 17, 21, 24,
+      2, 4, 6, 8, 12, 14, 17, 21, 24,
     ]);
   });
 

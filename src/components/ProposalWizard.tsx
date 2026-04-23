@@ -26,6 +26,7 @@ import {
   Plus,
   Search,
   Send,
+  Settings,
   Sparkles,
   Star,
   Store,
@@ -50,6 +51,7 @@ import {
 import { ClientProposalBody } from "@/app/proposal/[id]/client/ClientProposalBody";
 import { ClientCatalogEditModal } from "@/components/ClientCatalogEditModal";
 import { CommissionBeneficiaryFormModal } from "@/components/CommissionBeneficiaryFormModal";
+import { MaintenanceTypeHoverTip } from "@/components/MaintenanceTypeHoverTip";
 import { PrintBar } from "@/components/PrintBar";
 import {
   markupOptionsForSelect,
@@ -935,6 +937,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   );
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const clientSelectRef = useRef<HTMLDivElement | null>(null);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const locationSelectRef = useRef<HTMLDivElement | null>(null);
 
   const [clientId, setClientId] = useState("");
   const [locationId, setLocationId] = useState("");
@@ -964,6 +968,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const [commissionBeneficiaryCatalog, setCommissionBeneficiaryCatalog] =
     useState<CommissionBeneficiary[]>([]);
   const [commissionBeneficiaryModalOpen, setCommissionBeneficiaryModalOpen] =
+    useState(false);
+  const [commissionSettingsModalOpen, setCommissionSettingsModalOpen] =
     useState(false);
   const autoSourceDoneRef = useRef(false);
   /** Tracks last wizard step so we can reset product auto-sync when returning to Requirements. */
@@ -1005,15 +1011,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const [productsSheetTab, setProductsSheetTab] = useState<"lines" | "labor">(
     "lines",
   );
-  const [rotationsSheetTab, setRotationsSheetTab] = useState<
-    "rotations" | "commission"
-  >("rotations");
   const [draftItems, setDraftItems] = useState<ProposalItemInput[]>([]);
   const plantPhotoInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
 
   const [rotations, setRotations] = useState<ProposalRotation[]>([]);
 
-  const [submittedBy, setSubmittedBy] = useState("Marilyn Wetzel");
+  const [submittedBy, setSubmittedBy] = useState("Cindi Deyoung");
   const [maintenanceTier, setMaintenanceTier] = useState<
     "tier_1" | "tier_2" | "tier_3"
   >("tier_2");
@@ -1024,6 +1027,14 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [clientCatalogEditOpen, setClientCatalogEditOpen] = useState(false);
+  const [locationFormOpen, setLocationFormOpen] = useState(false);
+  const [locationFormMode, setLocationFormMode] = useState<"add" | "edit">(
+    "add",
+  );
+  const [locationFormSubmitting, setLocationFormSubmitting] = useState(false);
+  const [locationFormErr, setLocationFormErr] = useState<string | null>(null);
+  const [locFormName, setLocFormName] = useState("");
+  const [locFormAddress, setLocFormAddress] = useState("");
   const [sendEmail, setSendEmail] = useState("");
   const [sendSubject, setSendSubject] = useState(
     "Interior Plant Proposal — Greenery Productions",
@@ -1066,7 +1077,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
           ? p.saleType
           : "new_installation",
       );
-      setSubmittedBy(p.submittedBy ?? "");
+      setSubmittedBy(p.submittedBy?.trim() || "Cindi Deyoung");
       setMaintenanceTier(p.maintenanceTier);
       setRotations(p.rotations ?? []);
       setLaborLines(
@@ -1107,6 +1118,38 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     () => clients.find((c) => c.id === clientId),
     [clients, clientId],
   );
+
+  const selectedJobLocation = useMemo(
+    () => selectedClient?.locations.find((l) => l.id === locationId),
+    [selectedClient, locationId],
+  );
+
+  const openAddLocationModal = useCallback(() => {
+    if (!clientId) return;
+    setLocationPickerOpen(false);
+    setLocationFormMode("add");
+    setLocFormName("");
+    setLocFormAddress("");
+    setLocationFormErr(null);
+    setLocationFormOpen(true);
+  }, [clientId]);
+
+  const openEditLocationModal = useCallback(() => {
+    if (!clientId || !locationId || !selectedClient) return;
+    const loc = selectedClient.locations.find((l) => l.id === locationId);
+    if (!loc) return;
+    setLocationPickerOpen(false);
+    setLocationFormMode("edit");
+    setLocFormName(loc.name);
+    setLocFormAddress(loc.address ?? "");
+    setLocationFormErr(null);
+    setLocationFormOpen(true);
+  }, [clientId, locationId, selectedClient]);
+
+  const closeLocationModal = useCallback(() => {
+    setLocationFormOpen(false);
+    setLocationFormErr(null);
+  }, []);
 
   /** Derived from CRM flag — no separate "client type" control. */
   const clientKind = useMemo((): "new" | "old" | null => {
@@ -1213,6 +1256,24 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (!commissionDetailsEnabled) setCommissionPctDraft(null);
   }, [commissionDetailsEnabled]);
+
+  useEffect(() => {
+    if (step !== 1) setCommissionSettingsModalOpen(false);
+  }, [step]);
+
+  useEffect(() => {
+    if (!commissionSettingsModalOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCommissionSettingsModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [commissionSettingsModalOpen]);
 
   useEffect(() => {
     if (!urlProposalId) return;
@@ -1338,7 +1399,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       });
       setProposalId(p.id);
       setProposalStatus(p.status);
-      if (p.submittedBy) setSubmittedBy(p.submittedBy);
+      setSubmittedBy(p.submittedBy?.trim() || "Cindi Deyoung");
       setMaintenanceTier(p.maintenanceTier);
       setRotations(p.rotations ?? []);
       setLaborLines(
@@ -1369,7 +1430,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
   async function patchProposalGeneral(
     explicitId?: string,
-    opts?: { quiet?: boolean; contactNameOverride?: string },
+    opts?: {
+      quiet?: boolean;
+      contactNameOverride?: string;
+      submittedByOverride?: string;
+      locationIdOverride?: string;
+    },
   ) {
     const id = explicitId ?? proposalId;
     if (!id) return;
@@ -1388,6 +1454,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       const firstRow = rawIds.length
         ? commissionBeneficiaryCatalog.find((b) => b.id === rawIds[0])
         : undefined;
+      const effectiveLocationId =
+        opts?.locationIdOverride?.trim() || locationId.trim() || undefined;
       await apiJson<Proposal>(`/proposals/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -1395,7 +1463,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
             opts?.contactNameOverride?.trim() ||
             selectedClient?.contactName?.trim() ||
             undefined,
-          submittedBy: submittedBy.trim() || undefined,
+          submittedBy:
+            (opts?.submittedByOverride ?? submittedBy).trim() || undefined,
+          ...(effectiveLocationId ? { locationId: effectiveLocationId } : {}),
           maintenanceTier,
           requirementLines: requirementLines.map((r) => ({ ...r })),
           laborLines,
@@ -1431,6 +1501,60 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       if (!opts?.quiet) {
         setBusy(false);
       }
+    }
+  }
+
+  async function submitLocationModal() {
+    if (!clientId) return;
+    setLocationFormSubmitting(true);
+    setLocationFormErr(null);
+    try {
+      const name = locFormName.trim();
+      const address = locFormAddress.trim();
+      if (!name) throw new Error("Location name is required.");
+      if (!address) {
+        throw new Error(
+          "Address is required so Greenery can estimate drive time.",
+        );
+      }
+      let effectiveLocId: string;
+      if (locationFormMode === "add") {
+        const res = await apiJson<{
+          client: Client;
+          location: { id: string };
+        }>(`/clients/${clientId}/locations`, {
+          method: "POST",
+          body: JSON.stringify({ name, address }),
+        });
+        setClients((prev) =>
+          prev.map((c) => (c.id === res.client.id ? res.client : c)),
+        );
+        effectiveLocId = res.location.id;
+        setLocationId(res.location.id);
+      } else {
+        const res = await apiJson<{ client: Client }>(
+          `/clients/${clientId}/locations/${locationId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ name, address }),
+          },
+        );
+        setClients((prev) =>
+          prev.map((c) => (c.id === res.client.id ? res.client : c)),
+        );
+        effectiveLocId = locationId;
+      }
+      if (proposalId) {
+        await patchProposalGeneral(proposalId, {
+          quiet: true,
+          locationIdOverride: effectiveLocId,
+        });
+      }
+      setLocationFormOpen(false);
+    } catch (e) {
+      setLocationFormErr(toErrorMessage(e));
+    } finally {
+      setLocationFormSubmitting(false);
     }
   }
 
@@ -1744,6 +1868,17 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     setCommissionSlot(index, "");
   }
 
+  function handleCommissionToggle() {
+    if (isProposalLocked) return;
+    if (commissionDetailsEnabled) {
+      setCommissionDetailsEnabled(false);
+      setCommissionSettingsModalOpen(false);
+    } else {
+      setCommissionDetailsEnabled(true);
+      setCommissionSettingsModalOpen(true);
+    }
+  }
+
   function onCommissionBeneficiariesCountInput(nextCount: number) {
     const safe = Math.max(0, Math.floor(nextCount));
     const filledIds = commissionBeneficiarySlots.filter((s) => s.trim());
@@ -1974,7 +2109,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     setDraftItems((prev) => {
       const next = prev.filter((row) => row.category === "staging");
       for (const line of requirementLines) {
-        if (!isPlantCatalogSelectionComplete(line.plantCatalogId, catalog)) continue;
+        if (!isPlantCatalogSelectionComplete(line.plantCatalogId, catalog))
+          continue;
         const plant = catalog.find((p) => p.id === line.plantCatalogId);
         if (!plant?.growers.length) continue;
         let bestIdx = 0;
@@ -2056,7 +2192,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
       const newPlants: ProposalItemInput[] = [];
       for (const line of requirementLines) {
-        if (!isPlantCatalogSelectionComplete(line.plantCatalogId, catalog)) continue;
+        if (!isPlantCatalogSelectionComplete(line.plantCatalogId, catalog))
+          continue;
         if (coveredReqIds.has(line.id)) continue;
         const plant = catalog.find((p) => p.id === line.plantCatalogId);
         if (!plant?.growers.length) continue;
@@ -2498,7 +2635,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const requirementPlantLinesForLabor = useMemo(
     () =>
       requirementLines
-        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId, catalog))
+        .filter((l) =>
+          isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
+        )
         .map((l) => {
           const plant = catalog.find((p) => p.id === l.plantCatalogId.trim());
           const sizeInches =
@@ -2797,7 +2936,8 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       requirementLines
         .filter(
           (l) =>
-            isPlantCatalogSelectionComplete(l.plantCatalogId, catalog) && l.guaranteed,
+            isPlantCatalogSelectionComplete(l.plantCatalogId, catalog) &&
+            l.guaranteed,
         )
         .map(
           (l) => `${l.plantCatalogId.trim()}::${l.area.trim().toLowerCase()}`,
@@ -2918,7 +3058,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const totalPlantUnitsFromRequirements = useMemo(
     () =>
       requirementLines
-        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId, catalog))
+        .filter((l) =>
+          isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
+        )
         .reduce((s, l) => s + l.qty, 0),
     [requirementLines],
   );
@@ -2967,6 +3109,20 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [clientPickerOpen]);
+
+  useEffect(() => {
+    if (!locationPickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = locationSelectRef.current;
+      if (el && !el.contains(e.target as Node)) setLocationPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [locationPickerOpen]);
+
+  useEffect(() => {
+    setLocationPickerOpen(false);
+  }, [clientId]);
 
   useEffect(() => {
     if (!excelMenuOpen) return;
@@ -3023,7 +3179,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
   const requirementPlantLinesSyncKey = useMemo(
     () =>
       requirementLines
-        .filter((l) => isPlantCatalogSelectionComplete(l.plantCatalogId, catalog))
+        .filter((l) =>
+          isPlantCatalogSelectionComplete(l.plantCatalogId, catalog),
+        )
         .map(
           (l) =>
             `${l.id}:${l.plantCatalogId}:${l.qty}:${(l.area ?? "").trim()}:${l.environment}:${l.potType.trim()}`,
@@ -3174,54 +3332,114 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 ) : null}
               </div>
 
-              {/* Excel dropdown */}
-              <div ref={excelMenuRef} className="relative inline-block">
-                <button
-                  type="button"
-                  onClick={() => setExcelMenuOpen((o) => !o)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-700 bg-[#1d6f42] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#165c36] active:scale-95"
-                >
-                  <FileSpreadsheet className="h-4 w-4 shrink-0" />
-                  Import Data
-                  <ChevronDown className="h-3.5 w-3.5 opacity-75" />
-                </button>
-                {excelMenuOpen ? (
-                  <div className="absolute left-0 top-full z-30 mt-1.5 w-60 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
-                    <a
-                      href="/templates/client-requirements-template.csv"
-                      download
-                      onClick={() => setExcelMenuOpen(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-emerald-50 hover:text-[#2b7041] dark:text-gray-200 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
-                    >
-                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-[#1d6f42] dark:text-emerald-400" />
-                      <div>
-                        <div>Download Template</div>
-                        <div className="text-[11px] font-normal text-gray-400 dark:text-gray-500">
-                          Get the Excel-ready fill-in sheet
+              {/* Import + commission (aligned row; commission width ≤ Import Data) */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between">
+                <div ref={excelMenuRef} className="relative shrink-0 self-start">
+                  <button
+                    type="button"
+                    onClick={() => setExcelMenuOpen((o) => !o)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-emerald-700 bg-[#1d6f42] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#165c36] active:scale-95"
+                  >
+                    <FileSpreadsheet className="h-4 w-4 shrink-0" />
+                    Import Data
+                    <ChevronDown className="h-3.5 w-3.5 opacity-75" />
+                  </button>
+                  {excelMenuOpen ? (
+                    <div className="absolute left-0 top-full z-30 mt-1.5 w-60 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+                      <a
+                        href="/templates/client-requirements-template.csv"
+                        download
+                        onClick={() => setExcelMenuOpen(false)}
+                        className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-emerald-50 hover:text-[#2b7041] dark:text-gray-200 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300"
+                      >
+                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-[#1d6f42] dark:text-emerald-400" />
+                        <div>
+                          <div>Download Template</div>
+                          <div className="text-[11px] font-normal text-gray-400 dark:text-gray-500">
+                            Get the Excel-ready fill-in sheet
+                          </div>
                         </div>
-                      </div>
-                    </a>
-                    <div className="mx-3 border-t border-gray-100 dark:border-gray-800" />
-                    <label className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-sky-50 hover:text-sky-700 dark:text-gray-200 dark:hover:bg-sky-950/40 dark:hover:text-sky-300">
-                      <UploadCloud className="h-4 w-4 shrink-0 text-sky-500" />
-                      <div>
-                        <div>Import from Excel</div>
-                        <div className="text-[11px] font-normal text-gray-400 dark:text-gray-500">
-                          Upload your completed file (.csv)
+                      </a>
+                      <div className="mx-3 border-t border-gray-100 dark:border-gray-800" />
+                      <label className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-sky-50 hover:text-sky-700 dark:text-gray-200 dark:hover:bg-sky-950/40 dark:hover:text-sky-300">
+                        <UploadCloud className="h-4 w-4 shrink-0 text-sky-500" />
+                        <div>
+                          <div>Import from Excel</div>
+                          <div className="text-[11px] font-normal text-gray-400 dark:text-gray-500">
+                            Upload your completed file (.csv)
+                          </div>
                         </div>
-                      </div>
-                      <input
-                        type="file"
-                        accept=".csv,text/csv,text/plain"
-                        className="sr-only"
-                        onChange={(e) => {
-                          setExcelMenuOpen(false);
-                          onImportRequirementsFile(e);
-                        }}
-                      />
-                    </label>
+                        <input
+                          type="file"
+                          accept=".csv,text/csv,text/plain"
+                          className="sr-only"
+                          onChange={(e) => {
+                            setExcelMenuOpen(false);
+                            onImportRequirementsFile(e);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex w-full min-w-0 items-center justify-between gap-4 rounded-2xl border border-[#334155] bg-[#1e293b] px-5 py-4 shadow-lg sm:ml-auto sm:w-auto">
+                  <div className="flex min-w-0 flex-col">
+                    <h3 className="text-[13px] font-bold uppercase tracking-wide text-white">
+                      Comisión
+                    </h3>
+                    <p className="mt-0.5 text-[13px] text-slate-400">
+                      Comisión de venta opcional
+                    </p>
                   </div>
-                ) : null}
+                  <div className="flex shrink-0 items-center gap-4">
+                    {commissionDetailsEnabled ? (
+                      <button
+                        type="button"
+                        onClick={() => setCommissionSettingsModalOpen(true)}
+                        aria-label={
+                          isProposalLocked
+                            ? "Ver configuración de comisión"
+                            : "Configurar comisión"
+                        }
+                        title={
+                          isProposalLocked
+                            ? "Ver comisión"
+                            : "Configurar comisión"
+                        }
+                        className="flex items-center gap-2 rounded-lg border border-transparent bg-[#334155] px-3 py-1.5 text-[13px] font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-[#475569]"
+                      >
+                        <Settings
+                          className="h-4 w-4 shrink-0 text-slate-300"
+                          strokeWidth={2}
+                        />
+                        {isProposalLocked ? "Ver" : "Configurar"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={commissionDetailsEnabled}
+                      disabled={isProposalLocked}
+                      onClick={handleCommissionToggle}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent px-0.5 transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] disabled:cursor-not-allowed disabled:opacity-50 ${
+                        commissionDetailsEnabled
+                          ? "bg-[#10b981]"
+                          : "bg-[#475569]"
+                      }`}
+                    >
+                      <span className="sr-only">Activar comisión</span>
+                      <span
+                        aria-hidden
+                        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          commissionDetailsEnabled
+                            ? "translate-x-5"
+                            : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
               </div>
               {/* Indoor / Outdoor tabs */}
               <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-100/80 p-1 dark:border-gray-700 dark:bg-gray-800/50">
@@ -3270,26 +3488,32 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 text-xs text-gray-500 dark:border-gray-700/60 dark:bg-gray-800/40 dark:text-gray-400">
                 {requirementEnvTab === "indoor" ? (
                   <>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
-                      GMM
-                    </span>
+                    <MaintenanceTypeHoverTip variant="gmm">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                        GMM
+                      </span>
+                    </MaintenanceTypeHoverTip>
                     <span>
                       Indoor plants are{" "}
                       <strong className="text-gray-700 dark:text-gray-300">
                         Guaranteed
                       </strong>{" "}
                       by default. Uncheck to switch to{" "}
-                      <span className="font-semibold text-gray-600 dark:text-gray-400">
-                        MM
-                      </span>
+                      <MaintenanceTypeHoverTip variant="mm" className="align-baseline">
+                        <span className="font-semibold text-gray-600 dark:text-gray-400">
+                          MM
+                        </span>
+                      </MaintenanceTypeHoverTip>
                       .
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-                      MM
-                    </span>
+                    <MaintenanceTypeHoverTip variant="mm">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                        MM
+                      </span>
+                    </MaintenanceTypeHoverTip>
                     <span>
                       Outdoor plants are{" "}
                       <strong className="text-gray-700 dark:text-gray-300">
@@ -3531,29 +3755,43 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                   Guarantee Type
                                 </label>
                                 {line.environment === "indoor" ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateRequirementLine(line.id, {
-                                        guaranteed: !line.guaranteed,
-                                      })
+                                  <MaintenanceTypeHoverTip
+                                    variant={
+                                      line.guaranteed ? "gmm" : "mm"
                                     }
-                                    className={`flex items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-xs font-bold transition ${
-                                      line.guaranteed
-                                        ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                        : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-400"
-                                    }`}
+                                    fullWidth
+                                    placement="top"
                                   >
-                                    <span
-                                      className={`inline-block h-2 w-2 rounded-full ${line.guaranteed ? "bg-emerald-500" : "bg-gray-400"}`}
-                                    />
-                                    {line.guaranteed ? "GMM" : "MM"}
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateRequirementLine(line.id, {
+                                          guaranteed: !line.guaranteed,
+                                        })
+                                      }
+                                      className={`flex w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-xs font-bold transition ${
+                                        line.guaranteed
+                                          ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                          : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-400"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`inline-block h-2 w-2 shrink-0 rounded-full ${line.guaranteed ? "bg-emerald-500" : "bg-gray-400"}`}
+                                      />
+                                      {line.guaranteed ? "GMM" : "MM"}
+                                    </button>
+                                  </MaintenanceTypeHoverTip>
                                 ) : (
-                                  <div className="flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold text-gray-400 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-500">
-                                    <span className="inline-block h-2 w-2 rounded-full bg-gray-400" />
-                                    MM
-                                  </div>
+                                  <MaintenanceTypeHoverTip
+                                    variant="mm"
+                                    fullWidth
+                                    placement="top"
+                                  >
+                                    <div className="flex w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-xs font-bold text-gray-400 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-500">
+                                      <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-gray-400" />
+                                      MM
+                                    </div>
+                                  </MaintenanceTypeHoverTip>
                                 )}
                               </div>
 
@@ -3683,22 +3921,102 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    <MapPin className="h-3.5 w-3.5 text-gray-400" />
-                    Job Location
-                  </label>
-                  <select
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#2b7041]/30 dark:border-gray-700 dark:bg-gray-950"
-                    value={locationId}
-                    onChange={(e) => setLocationId(e.target.value)}
-                  >
-                    <option value="">Select location…</option>
-                    {(selectedClient?.locations ?? []).map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <MapPin className="h-3.5 w-3.5 text-gray-400" />
+                      Job Location
+                    </label>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-[#2b7041] hover:underline disabled:pointer-events-none disabled:opacity-40 dark:text-emerald-400"
+                      disabled={
+                        isProposalLocked ||
+                        !clientId ||
+                        !locationId ||
+                        !selectedClient?.locations.some((l) => l.id === locationId)
+                      }
+                      onClick={openEditLocationModal}
+                    >
+                      Edit location
+                    </button>
+                  </div>
+                  <div ref={locationSelectRef} className="relative">
+                    <button
+                      type="button"
+                      aria-expanded={locationPickerOpen}
+                      aria-haspopup="listbox"
+                      disabled={isProposalLocked || !clientId}
+                      onClick={() =>
+                        !isProposalLocked &&
+                        clientId &&
+                        setLocationPickerOpen((o) => !o)
+                      }
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left text-sm outline-none ring-[#2b7041]/30 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
+                    >
+                      <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">
+                        {selectedJobLocation?.name ?? "Select location…"}
+                      </span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                    </button>
+                    {locationPickerOpen && selectedClient ? (
+                      <ul
+                        className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+                        role="listbox"
+                        aria-label="Job locations"
+                      >
+                        {(selectedClient.locations ?? []).map((l) => (
+                          <li key={l.id} role="none">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={l.id === locationId}
+                              onClick={() => {
+                                setLocationId(l.id);
+                                setLocationPickerOpen(false);
+                              }}
+                              className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left text-sm transition hover:bg-emerald-50/80 dark:hover:bg-emerald-950/30 ${
+                                l.id === locationId
+                                  ? "bg-emerald-50/90 dark:bg-emerald-950/40"
+                                  : ""
+                              }`}
+                            >
+                              <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-medium text-gray-900 dark:text-white">
+                                  {l.name}
+                                </span>
+                                {l.address?.trim() ? (
+                                  <span className="mt-0.5 block line-clamp-2 font-serif text-[11px] font-normal leading-snug tracking-wide text-gray-500 dark:text-slate-400">
+                                    {l.address.trim()}
+                                  </span>
+                                ) : (
+                                  <span className="mt-0.5 block truncate text-[11px] font-normal text-gray-400 dark:text-slate-500">
+                                    No address on file
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                        <li
+                          role="separator"
+                          className="my-1 border-t border-gray-100 dark:border-gray-800"
+                        />
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="option"
+                            disabled={isProposalLocked}
+                            onClick={() => openAddLocationModal()}
+                            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-[#2b7041] transition hover:bg-emerald-50/80 disabled:pointer-events-none disabled:opacity-40 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                          >
+                            <Plus className="h-4 w-4 shrink-0" aria-hidden />
+                            Add new location…
+                          </button>
+                        </li>
+                      </ul>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div>
@@ -4667,233 +4985,16 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                 </p>
               </div>
 
-              <div className="flex gap-1 rounded-xl border border-gray-200 bg-gray-100/80 p-1 dark:border-gray-700 dark:bg-gray-800/50">
-                <button
-                  type="button"
-                  onClick={() => setRotationsSheetTab("rotations")}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    rotationsSheetTab === "rotations"
-                      ? "bg-white text-[#2b7041] shadow-sm dark:bg-gray-900 dark:text-emerald-300"
-                      : "text-gray-600 hover:bg-white/60 dark:text-gray-400 dark:hover:bg-gray-900/40"
-                  }`}
-                >
-                  Rotations
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRotationsSheetTab("commission")}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                    rotationsSheetTab === "commission"
-                      ? "bg-white text-[#2b7041] shadow-sm dark:bg-gray-900 dark:text-emerald-300"
-                      : "text-gray-600 hover:bg-white/60 dark:text-gray-400 dark:hover:bg-gray-900/40"
-                  }`}
-                >
-                  Commissions
-                </button>
-              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Configure sales commission on the{" "}
+                <span className="font-semibold text-gray-700 dark:text-gray-300">
+                  Client requirements
+                </span>{" "}
+                step (toggle next to Import Data).
+              </p>
 
-              {rotationsSheetTab === "commission" ? (
-                <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-950/50">
-                  <div className="mt-4 space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300 text-[#2b7041] focus:ring-[#2b7041]"
-                        checked={commissionDetailsEnabled}
-                        onChange={(e) =>
-                          setCommissionDetailsEnabled(e.target.checked)
-                        }
-                      />
-                      Enable commission
-                    </label>
-                    {commissionDetailsEnabled ? (
-                      <>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                              Commission % (0-100)
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              autoComplete="off"
-                              spellCheck={false}
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums dark:border-gray-700 dark:bg-gray-950"
-                              value={commissionPctInputDisplay}
-                              onChange={(e) => {
-                                const next = sanitizeCommissionPctDigitsRaw(
-                                  e.target.value,
-                                );
-                                setCommissionPctDraft(next);
-                                applyCommissionPctFromDigitsString(next);
-                              }}
-                              onBlur={() => setCommissionPctDraft(null)}
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                              # Beneficiaries
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              pattern="[0-9]*"
-                              autoComplete="off"
-                              spellCheck={false}
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums dark:border-gray-700 dark:bg-gray-950"
-                              value={String(commissionBeneficiaries)}
-                              onChange={(e) => {
-                                const d = sanitizeBeneficiaryCountDigits(
-                                  e.target.value,
-                                );
-                                if (d === "") {
-                                  onCommissionBeneficiariesCountInput(0);
-                                } else {
-                                  onCommissionBeneficiariesCountInput(
-                                    Number(d),
-                                  );
-                                }
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                              Commission beneficiaries
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setCommissionBeneficiaryModalOpen(true)
-                              }
-                              title="Add a new beneficiary to the catalog"
-                              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2b7041] bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2b7041] shadow-sm hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
-                            >
-                              <Plus className="h-4 w-4" aria-hidden />
-                              <span className="hidden sm:inline">New</span>
-                            </button>
-                          </div>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                            One catalog entry per slot (up to the # of
-                            beneficiaries). Each dropdown hides people already
-                            picked in another slot.
-                          </p>
-                          <div className="space-y-3">
-                            {commissionBeneficiarySlots.map(
-                              (slotId, slotIdx) => {
-                                const options =
-                                  commissionBeneficiaryCatalog.filter(
-                                    (b) =>
-                                      b.id === slotId.trim() ||
-                                      !commissionBeneficiarySlots.some(
-                                        (s, j) =>
-                                          j !== slotIdx && s.trim() === b.id,
-                                      ),
-                                  );
-                                const row = slotId.trim()
-                                  ? commissionBeneficiaryCatalog.find(
-                                      (b) => b.id === slotId.trim(),
-                                    )
-                                  : undefined;
-                                return (
-                                  <div
-                                    key={`commission-slot-${slotIdx}`}
-                                    className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950/50"
-                                  >
-                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                      <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                        Beneficiary {slotIdx + 1}
-                                      </span>
-                                      {slotId.trim() ? (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            clearCommissionSlot(slotIdx)
-                                          }
-                                          className="text-[11px] font-semibold text-red-600 hover:underline dark:text-red-400"
-                                        >
-                                          Remove
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                    <select
-                                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                      value={slotId.trim()}
-                                      onChange={(e) =>
-                                        setCommissionSlot(
-                                          slotIdx,
-                                          e.target.value,
-                                        )
-                                      }
-                                    >
-                                      <option value="">
-                                        Select beneficiary…
-                                      </option>
-                                      {options.map((b) => (
-                                        <option key={b.id} value={b.id}>
-                                          {b.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    {row ? (
-                                      <div className="mt-2 space-y-0.5 text-xs text-gray-600 dark:text-gray-400">
-                                        <p>
-                                          <span className="font-semibold">
-                                            Phone:
-                                          </span>{" "}
-                                          {row.phone?.trim() || "—"}
-                                        </p>
-                                        <p>
-                                          <span className="font-semibold">
-                                            Email:
-                                          </span>{" "}
-                                          {row.email || "—"}
-                                        </p>
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              },
-                            )}
-                          </div>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                            <button
-                              type="button"
-                              className="font-semibold text-[#2b7041] underline dark:text-emerald-400"
-                              onClick={() =>
-                                void apiGet<CommissionBeneficiary[]>(
-                                  "/commission-beneficiaries",
-                                )
-                                  .then(setCommissionBeneficiaryCatalog)
-                                  .catch((e: unknown) =>
-                                    setError(toErrorMessage(e)),
-                                  )
-                              }
-                            >
-                              Refresh list
-                            </button>
-                            {" · "}
-                            <Link
-                              href="/admin/pricing?view=commissions"
-                              className="font-semibold text-[#2b7041] underline dark:text-emerald-400"
-                            >
-                              Manage catalog (delete)
-                            </Link>
-                          </p>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Commission is off; nothing is added for commission in
-                        totals.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {rotations.length === 0 ? (
+              <>
+                {rotations.length === 0 ? (
                     <p className="py-8 text-center text-sm text-gray-500">
                       No rotations in this proposal.
                     </p>
@@ -5017,8 +5118,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     </>
                   )}
-                </>
-              )}
+              </>
             </div>
           ) : null}
 
@@ -5351,7 +5451,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               {!summary ? (
-                <p className="no-print text-sm text-gray-500">Loading preview…</p>
+                <p className="no-print text-sm text-gray-500">
+                  Loading preview…
+                </p>
               ) : proposalPreview === "client" ? (
                 <div className="proposal-embed-shell border border-gray-200 bg-[#f3f4f6] dark:border-gray-700 dark:bg-gray-950">
                   <ClientProposalBody data={summary} />
@@ -5613,7 +5715,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   </div>
                 </div>
               ) : null}
-
             </div>
           ) : null}
         </div>
@@ -6079,6 +6180,221 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         </div>
       ) : null}
 
+      {commissionSettingsModalOpen ? (
+        <div
+          className="no-print fixed inset-0 z-[125] flex items-center justify-center p-4"
+          role="presentation"
+        >
+          <button
+            type="button"
+            aria-label="Close commission settings"
+            className="absolute inset-0 bg-[#121212]/55 backdrop-blur-sm dark:bg-black/65"
+            onClick={() => setCommissionSettingsModalOpen(false)}
+          />
+          <div
+            className="relative z-[126] max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="commission-settings-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2
+                id="commission-settings-title"
+                className="text-lg font-bold text-[#2b7041] dark:text-emerald-400"
+              >
+                Commission settings
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCommissionSettingsModalOpen(false)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-xs text-gray-600 dark:text-gray-400">
+              Set the commission percentage and assign beneficiaries. Values
+              apply when you continue or save the proposal.
+            </p>
+            {!commissionDetailsEnabled ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Commission is turned off. Close this dialog and use the toggle
+                under Client requirements to enable it.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Commission % (0–100)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={isProposalLocked}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
+                      value={commissionPctInputDisplay}
+                      onChange={(e) => {
+                        const next = sanitizeCommissionPctDigitsRaw(
+                          e.target.value,
+                        );
+                        setCommissionPctDraft(next);
+                        applyCommissionPctFromDigitsString(next);
+                      }}
+                      onBlur={() => setCommissionPctDraft(null)}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      # Beneficiaries
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={isProposalLocked}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
+                      value={String(commissionBeneficiaries)}
+                      onChange={(e) => {
+                        const d = sanitizeBeneficiaryCountDigits(e.target.value);
+                        if (d === "") {
+                          onCommissionBeneficiariesCountInput(0);
+                        } else {
+                          onCommissionBeneficiariesCountInput(Number(d));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Commission beneficiaries
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isProposalLocked}
+                      onClick={() => setCommissionBeneficiaryModalOpen(true)}
+                      title="Add a new beneficiary to the catalog"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2b7041] bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2b7041] shadow-sm hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+                    >
+                      <Plus className="h-4 w-4" aria-hidden />
+                      <span className="hidden sm:inline">New</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    One catalog entry per slot (up to the # of beneficiaries).
+                    Each dropdown hides people already picked in another slot.
+                  </p>
+                  <div className="space-y-3">
+                    {commissionBeneficiarySlots.map((slotId, slotIdx) => {
+                      const options = commissionBeneficiaryCatalog.filter(
+                        (b) =>
+                          b.id === slotId.trim() ||
+                          !commissionBeneficiarySlots.some(
+                            (s, j) => j !== slotIdx && s.trim() === b.id,
+                          ),
+                      );
+                      const row = slotId.trim()
+                        ? commissionBeneficiaryCatalog.find(
+                            (b) => b.id === slotId.trim(),
+                          )
+                        : undefined;
+                      return (
+                        <div
+                          key={`commission-modal-slot-${slotIdx}`}
+                          className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-gray-950/50"
+                        >
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                              Beneficiary {slotIdx + 1}
+                            </span>
+                            {slotId.trim() ? (
+                              <button
+                                type="button"
+                                disabled={isProposalLocked}
+                                onClick={() => clearCommissionSlot(slotIdx)}
+                                className="text-[11px] font-semibold text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                          <select
+                            disabled={isProposalLocked}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
+                            value={slotId.trim()}
+                            onChange={(e) =>
+                              setCommissionSlot(slotIdx, e.target.value)
+                            }
+                          >
+                            <option value="">Select beneficiary…</option>
+                            {options.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                              </option>
+                            ))}
+                          </select>
+                          {row ? (
+                            <div className="mt-2 space-y-0.5 text-xs text-gray-600 dark:text-gray-400">
+                              <p>
+                                <span className="font-semibold">Phone:</span>{" "}
+                                {row.phone?.trim() || "—"}
+                              </p>
+                              <p>
+                                <span className="font-semibold">Email:</span>{" "}
+                                {row.email || "—"}
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    <button
+                      type="button"
+                      className="font-semibold text-[#2b7041] underline dark:text-emerald-400"
+                      onClick={() =>
+                        void apiGet<CommissionBeneficiary[]>(
+                          "/commission-beneficiaries",
+                        )
+                          .then(setCommissionBeneficiaryCatalog)
+                          .catch((e: unknown) => setError(toErrorMessage(e)))
+                      }
+                    >
+                      Refresh list
+                    </button>
+                    {" · "}
+                    <Link
+                      href="/admin/pricing?view=commissions"
+                      className="font-semibold text-[#2b7041] underline dark:text-emerald-400"
+                    >
+                      Manage catalog (delete)
+                    </Link>
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="mt-6 flex justify-end border-t border-gray-100 pt-4 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setCommissionSettingsModalOpen(false)}
+                className="rounded-lg bg-[#2b7041] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 dark:bg-emerald-700"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ClientCatalogEditModal
         open={clientCatalogEditOpen}
         client={selectedClient ?? null}
@@ -6095,6 +6411,95 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
           }
         }}
       />
+
+      {locationFormOpen ? (
+        <div
+          className="no-print fixed inset-0 z-[115] flex items-center justify-center p-4"
+          role="presentation"
+        >
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute inset-0 bg-[#121212]/55 backdrop-blur-sm dark:bg-black/65"
+            onClick={() => !locationFormSubmitting && closeLocationModal()}
+          />
+          <div
+            className="relative z-[116] w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="location-form-title"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2
+                id="location-form-title"
+                className="text-lg font-bold text-[#2b7041] dark:text-emerald-400"
+              >
+                {locationFormMode === "add"
+                  ? "Add job location"
+                  : "Edit job location"}
+              </h2>
+              <button
+                type="button"
+                disabled={locationFormSubmitting}
+                onClick={closeLocationModal}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-xs text-gray-600 dark:text-gray-400">
+              Saved on the client account. Include a full street address when
+              possible so drive times stay accurate.
+            </p>
+            {locationFormErr ? (
+              <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                {locationFormErr}
+              </p>
+            ) : null}
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                Location name
+                <input
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  value={locFormName}
+                  onChange={(e) => setLocFormName(e.target.value)}
+                  placeholder="e.g. Main lobby"
+                  autoComplete="off"
+                />
+              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                Street address
+                <input
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  value={locFormAddress}
+                  onChange={(e) => setLocFormAddress(e.target.value)}
+                  placeholder="Full address"
+                  autoComplete="street-address"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2 border-t border-gray-100 pt-4 dark:border-gray-800">
+              <button
+                type="button"
+                disabled={locationFormSubmitting}
+                onClick={closeLocationModal}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={locationFormSubmitting}
+                onClick={() => void submitLocationModal()}
+                className="rounded-lg bg-[#2b7041] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50 dark:bg-emerald-700"
+              >
+                {locationFormSubmitting ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <CommissionBeneficiaryFormModal
         open={commissionBeneficiaryModalOpen}

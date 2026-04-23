@@ -68,20 +68,8 @@ export function PlantSpeciesAndSizePickers({
     });
   }, [speciesRows, query]);
 
-  /** Only sizes that exist for this species (avoids synthetic ids with no catalog row). */
-  const sizeOptionsInches = useMemo(() => {
-    if (!speciesCode) return [...CANONICAL_POT_SIZES_INCHES];
-    const want = speciesCode.trim().toLowerCase();
-    const sizes = new Set<number>();
-    for (const p of fullCatalog) {
-      if (p.catalogCode?.trim().toLowerCase() !== want) continue;
-      if (typeof p.sizeInches === "number" && p.sizeInches > 0) {
-        sizes.add(p.sizeInches);
-      }
-    }
-    if (sizes.size === 0) return [...CANONICAL_POT_SIZES_INCHES];
-    return [...sizes].sort((a, b) => a - b);
-  }, [fullCatalog, speciesCode]);
+  /** Canonical sizes for every species (aligned with Mongo seed / `CANONICAL_POT_SIZES_INCHES`). */
+  const sizeOptionsInches = useMemo(() => [...CANONICAL_POT_SIZES_INCHES], []);
 
   useEffect(() => {
     setHighlight(0);

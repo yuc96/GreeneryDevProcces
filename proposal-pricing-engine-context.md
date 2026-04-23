@@ -205,7 +205,7 @@ El **TOTAL PROPOSAL** es la **suma de 11 conceptos** (no 10):
 ## 8. Inconsistencias o puntos a vigilar (para implementación)
 
 1. **Título de la sección 5 vs contenido:** el título sigue diciendo “Mantenimiento Mensual Garantizado” / “Guaranteed Monthly Maintenance Calculator”, pero el cuerpo define **también MM** no garantizado. Una IA o un UI debería tratar la sección como “mantenimiento mensual (MMG + MM)”.
-2. **Labor sección 6:** sin tarifa fija; la rotación (P2) sí usa **$35/h** explícitamente.
+2. **Labor sección 6:** sin tarifa fija; la rotación  sí usa **$35/h** explícitamente.
 3. **Comisiones:** la variable es “configurable 5%” pero la fórmula escrita usa literalmente 5% en los tres términos; si se cambia el %, la fórmula del documento habría que alinearla.
 
 ---

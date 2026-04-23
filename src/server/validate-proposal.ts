@@ -163,6 +163,12 @@ export function parsePatchGeneral(body: unknown): PatchProposalGeneralInput {
     out.submittedBy =
       b.submittedBy === null ? undefined : String(b.submittedBy);
   }
+  if (b.locationId !== undefined) {
+    if (typeof b.locationId !== "string" || !b.locationId.trim()) {
+      throw new HttpError(400, "locationId must be a non-empty string");
+    }
+    out.locationId = String(b.locationId).trim();
+  }
   if (b.maintenanceTier !== undefined) {
     if (typeof b.maintenanceTier !== "string") {
       throw new HttpError(400, "maintenanceTier is invalid");

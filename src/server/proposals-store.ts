@@ -27,7 +27,10 @@ import {
   getCachedPricingConfig,
   loadPricingConfig,
 } from "./pricing/pricing-config-store";
-import type { ProposalListSummaryRow, PurchaseOrderPrintData } from "@/lib/types";
+import type {
+  ProposalListSummaryRow,
+  PurchaseOrderPrintData,
+} from "@/lib/types";
 import { COL } from "@/infrastructure/mongo/collections";
 import { getMongoDb } from "@/infrastructure/mongo/mongo-client";
 import {
@@ -84,6 +87,8 @@ export interface ProposalRotationInput {
 export interface PatchProposalGeneralInput {
   contactName?: string;
   submittedBy?: string;
+  /** Must belong to the proposal's client. */
+  locationId?: string;
   maintenanceTier?: "tier_1" | "tier_2" | "tier_3";
   requirementLines?: ClientRequirementLineEntity[];
   laborLines?: ProposalLaborLineEntity[];
@@ -119,9 +124,12 @@ function ensureProposalShape(p: ProposalEntity): void {
   ) {
     p.commissionBeneficiaries = 0;
   }
-  if (p.commissionBeneficiaryName === undefined) p.commissionBeneficiaryName = "";
-  if (p.commissionBeneficiaryPhone === undefined) p.commissionBeneficiaryPhone = "";
-  if (p.commissionBeneficiaryEmail === undefined) p.commissionBeneficiaryEmail = "";
+  if (p.commissionBeneficiaryName === undefined)
+    p.commissionBeneficiaryName = "";
+  if (p.commissionBeneficiaryPhone === undefined)
+    p.commissionBeneficiaryPhone = "";
+  if (p.commissionBeneficiaryEmail === undefined)
+    p.commissionBeneficiaryEmail = "";
   if (!Array.isArray(p.commissionBeneficiaryIds)) {
     p.commissionBeneficiaryIds = p.commissionBeneficiaryId
       ? [p.commissionBeneficiaryId]
@@ -140,8 +148,7 @@ function ensureProposalShape(p: ProposalEntity): void {
   } else {
     p.requirementLines = p.requirementLines.map((line) => ({
       ...line,
-      environment:
-        line.environment === "outdoor" ? "outdoor" : "indoor",
+      environment: line.environment === "outdoor" ? "outdoor" : "indoor",
       clientHasPot: Boolean(line.clientHasPot),
       plantingWithoutPot: Boolean(line.plantingWithoutPot),
       guaranteed: Boolean(line.guaranteed),
@@ -202,12 +209,17 @@ function buildPurchaseOrder(input: {
 
 async function readProposalBundle(
   id: string,
-): Promise<{ proposal: ProposalEntity; purchaseOrders: PurchaseOrderEntity[] }> {
+): Promise<{
+  proposal: ProposalEntity;
+  purchaseOrders: PurchaseOrderEntity[];
+}> {
   const db = await getMongoDb();
   const doc = await asDocCollection(db, COL.proposals).findOne(filterById(id));
   if (!doc) throw new HttpError(404, `Proposal ${id} not found`);
   const d = doc as unknown as ProposalMongoDoc & { _id: string };
-  const purchaseOrders = Array.isArray(d.purchaseOrders) ? d.purchaseOrders : [];
+  const purchaseOrders = Array.isArray(d.purchaseOrders)
+    ? d.purchaseOrders
+    : [];
   const rest = { ...d } as Record<string, unknown>;
   delete rest.purchaseOrders;
   const pid = String(rest._id);
@@ -243,7 +255,10 @@ async function nextProposalNumber(): Promise<string> {
   // MongoDB rejects that with ConflictingUpdateOperators (code 40).
   // On upsert, $inc on a non-existent field starts from 0, so the new
   // document will have seq: 1 after this operation.
-  const result = await asDocCollection(db, COL.proposalCounters).findOneAndUpdate(
+  const result = await asDocCollection(
+    db,
+    COL.proposalCounters,
+  ).findOneAndUpdate(
     filterById("global"),
     { $inc: { seq: 1 } } as Record<string, unknown>,
     { upsert: true, returnDocument: "after" },
@@ -254,7 +269,8 @@ async function nextProposalNumber(): Promise<string> {
     (result as { value?: { seq?: number } } | null)?.value ??
     (result as { seq?: number } | null) ??
     null;
-  const seq = typeof doc?.seq === "number" && Number.isFinite(doc.seq) ? doc.seq : 1;
+  const seq =
+    typeof doc?.seq === "number" && Number.isFinite(doc.seq) ? doc.seq : 1;
   return `PRO-${y}-${String(seq).padStart(3, "0")}`;
 }
 
@@ -330,7 +346,9 @@ function computeSummary(p: ProposalEntity) {
   };
 }
 
-export async function listProposalSummaries(): Promise<ProposalListSummaryRow[]> {
+export async function listProposalSummaries(): Promise<
+  ProposalListSummaryRow[]
+> {
   await ensurePricingAndLaborLoaded();
   const db = await getMongoDb();
   const proposals = await asDocCollection(db, COL.proposals)
@@ -398,7 +416,7 @@ export async function createProposal(
     accountingCode: accountingCodeForSaleType(dto.saleType),
     status: "draft",
     contactName: client.contactName,
-    submittedBy: "Cindy",
+    submittedBy: "Cindi Deyoung",
     maintenanceTier: "tier_2",
     requirementLines: [],
     items: [],
@@ -437,7 +455,19 @@ export async function patchGeneralProposal(
   assertEditable(p);
   if (dto.contactName !== undefined) p.contactName = dto.contactName;
   if (dto.submittedBy !== undefined) p.submittedBy = dto.submittedBy;
-  if (dto.maintenanceTier !== undefined) p.maintenanceTier = dto.maintenanceTier;
+  if (dto.locationId !== undefined) {
+    const client = await clientsStore.findClient(p.clientId);
+    const ok = client.locations.some((l) => l.id === dto.locationId);
+    if (!ok) {
+      throw new HttpError(
+        400,
+        "locationId does not belong to this proposal's client",
+      );
+    }
+    p.locationId = dto.locationId;
+  }
+  if (dto.maintenanceTier !== undefined)
+    p.maintenanceTier = dto.maintenanceTier;
   if (dto.requirementLines !== undefined) {
     p.requirementLines = dto.requirementLines;
   }
@@ -456,9 +486,7 @@ export async function patchGeneralProposal(
   if (dto.commissionBeneficiaryIds !== undefined) {
     const raw = dto.commissionBeneficiaryIds;
     const list = Array.isArray(raw)
-      ? raw
-          .map((x) => String(x).trim())
-          .filter(Boolean)
+      ? raw.map((x) => String(x).trim()).filter(Boolean)
       : [];
     p.commissionBeneficiaryIds = [...new Set(list)].slice(0, 50);
     syncLegacyCommissionBeneficiaryFields(p);
@@ -494,7 +522,10 @@ export async function patchGeneralProposal(
   }
   const maxByCount = Math.max(0, Math.floor(p.commissionBeneficiaries ?? 0));
   if (Array.isArray(p.commissionBeneficiaryIds)) {
-    p.commissionBeneficiaryIds = p.commissionBeneficiaryIds.slice(0, maxByCount);
+    p.commissionBeneficiaryIds = p.commissionBeneficiaryIds.slice(
+      0,
+      maxByCount,
+    );
     syncLegacyCommissionBeneficiaryFields(p);
   }
   const cfg = getCachedPricingConfig();
@@ -524,8 +555,7 @@ export async function replaceItemsProposal(
   assertEditable(p);
   const prevById = new Map(p.items.map((x) => [x.id, x] as const));
   p.items = items.map((row) => {
-    const keepId =
-      row.id && prevById.has(row.id) ? row.id : randomUUID();
+    const keepId = row.id && prevById.has(row.id) ? row.id : randomUUID();
     const prev = prevById.get(keepId);
     let photos: string[] | undefined;
     if (row.category === "plant") {
@@ -703,7 +733,10 @@ export async function markProposalSent(id: string): Promise<ProposalEntity> {
 
 export async function approveAndGenerateOrdersProposal(
   id: string,
-): Promise<{ proposal: ProposalEntity; purchaseOrders: PurchaseOrderEntity[] }> {
+): Promise<{
+  proposal: ProposalEntity;
+  purchaseOrders: PurchaseOrderEntity[];
+}> {
   await ensurePricingAndLaborLoaded();
   const { proposal: p } = await readProposalBundle(id);
   if (p.status === "draft") {
@@ -749,8 +782,8 @@ export async function getPurchaseOrderPrint(
   }
   const client = await clientsStore.findClient(p.clientId);
   const loc = client.locations.find((l) => l.id === p.locationId);
-  const items: PurchaseOrderPrintData["purchaseOrder"]["items"] =
-    po.items.map((it) => ({
+  const items: PurchaseOrderPrintData["purchaseOrder"]["items"] = po.items.map(
+    (it) => ({
       id: it.id,
       category: it.category,
       catalogId: it.catalogId,
@@ -765,14 +798,13 @@ export async function getPurchaseOrderPrint(
       requiresRotation: it.requiresRotation,
       vendorName: it.vendorName?.trim() || "—",
       vendorAddress: it.vendorAddress?.trim() || "—",
-    }));
+    }),
+  );
   return {
     proposalId: p.id,
     proposalNumber: p.number,
     clientName: client.companyName,
-    jobSite: loc
-      ? { name: loc.name, address: loc.address }
-      : null,
+    jobSite: loc ? { name: loc.name, address: loc.address } : null,
     purchaseOrder: {
       id: po.id,
       sequence: po.sequence,

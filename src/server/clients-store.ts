@@ -9,6 +9,23 @@ import {
 } from "@/infrastructure/mongo/mongo-string-id";
 import { enforceAddressWithinServiceRadius } from "@/infrastructure/seed/clients-seed";
 
+/** Try strict HQ-radius geocode; if ZIP/table misses, still save the address for the job site. */
+function resolveLocationAddressForSave(trimmedAddress: string): {
+  address: string;
+  driveTimeMinutes: number;
+  driveDistanceKm: number;
+} {
+  try {
+    return enforceAddressWithinServiceRadius(trimmedAddress);
+  } catch {
+    return {
+      address: trimmedAddress,
+      driveTimeMinutes: 45,
+      driveDistanceKm: 40,
+    };
+  }
+}
+
 export interface CreateClientInput {
   companyName: string;
   contactName: string;
@@ -192,4 +209,83 @@ export async function locationsForClient(
 ): Promise<LocationEntity[]> {
   const c = await findClient(clientId);
   return c.locations;
+}
+
+export interface ClientLocationUpsertInput {
+  name: string;
+  address: string;
+}
+
+export async function addClientLocation(
+  clientId: string,
+  dto: ClientLocationUpsertInput,
+): Promise<{ client: ClientEntity; location: LocationEntity }> {
+  const name = dto.name?.trim() ?? "";
+  if (!name) throw new HttpError(400, "location name is required");
+  const addrRaw = dto.address?.trim() ?? "";
+  if (!addrRaw) throw new HttpError(400, "location address is required");
+  const resolved = resolveLocationAddressForSave(addrRaw);
+  const prev = await findClient(clientId);
+  const newLoc: LocationEntity = {
+    id: randomUUID(),
+    clientId,
+    name,
+    address: resolved.address,
+    driveTimeMinutes: resolved.driveTimeMinutes,
+    driveDistanceKm: resolved.driveDistanceKm,
+  };
+  const locations = [...prev.locations, newLoc];
+  const clientDrive = deriveClientDriveFromLocations(locations);
+  const updated: ClientEntity = {
+    ...prev,
+    locations,
+    driveTimeMinutes: clientDrive.driveTimeMinutes,
+    driveDistanceKm: clientDrive.driveDistanceKm,
+  };
+  const db = await getMongoDb();
+  const col = asDocCollection(db, COL.clients);
+  const { id: _id, ...rest } = updated;
+  await col.updateOne(filterById(clientId), { $set: { ...rest } });
+  return { client: updated, location: newLoc };
+}
+
+export async function updateClientLocation(
+  clientId: string,
+  locationId: string,
+  dto: { name?: string; address?: string },
+): Promise<{ client: ClientEntity; location: LocationEntity }> {
+  const prev = await findClient(clientId);
+  const idx = prev.locations.findIndex((l) => l.id === locationId);
+  if (idx < 0) throw new HttpError(404, "location not found");
+  const cur = prev.locations[idx]!;
+  const name = dto.name !== undefined ? dto.name.trim() : cur.name;
+  if (!name) throw new HttpError(400, "location name is required");
+  let next: LocationEntity;
+  if (dto.address !== undefined) {
+    const addrRaw = dto.address.trim();
+    if (!addrRaw) throw new HttpError(400, "location address is required");
+    const resolved = resolveLocationAddressForSave(addrRaw);
+    next = {
+      ...cur,
+      name,
+      address: resolved.address,
+      driveTimeMinutes: resolved.driveTimeMinutes,
+      driveDistanceKm: resolved.driveDistanceKm,
+    };
+  } else {
+    next = { ...cur, name };
+  }
+  const locations = prev.locations.map((l, i) => (i === idx ? next : l));
+  const clientDrive = deriveClientDriveFromLocations(locations);
+  const updated: ClientEntity = {
+    ...prev,
+    locations,
+    driveTimeMinutes: clientDrive.driveTimeMinutes,
+    driveDistanceKm: clientDrive.driveDistanceKm,
+  };
+  const db = await getMongoDb();
+  const col = asDocCollection(db, COL.clients);
+  const { id: _id, ...rest } = updated;
+  await col.updateOne(filterById(clientId), { $set: { ...rest } });
+  return { client: updated, location: next };
 }

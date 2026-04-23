@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Greenery selection catalog. PNGs in /public/plants/reference/{code}.png. Mongo seed (plant-catalog-builder) creates every canonical pot size (2–24 in) per species. Optional seedWholesalePricesBySize + rotationProgram still apply per variant. JJSS/JJDS replace legacy JJ orchid row.",
+  "notes": "Greenery selection catalog. PNGs in /public/plants/reference/{code}.png. Mongo seed (plant-catalog-builder) creates one variant per canonical pot size (2, 4, 6, 8, 12, 14, 17, 21, 24 in) for each species. Optional seedWholesalePricesBySize + rotationProgram still apply per variant. JJSS/JJDS replace legacy JJ orchid row.",
   "plants": [
     {
       "catalogCode": "A",
@@ -519,7 +519,6 @@
       "rotationProgram": true,
       "seedWholesalePricesBySize": {
         "2": 4,
-        "3": 5,
         "4": 8.5,
         "6": 24
       }

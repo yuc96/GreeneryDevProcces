@@ -382,7 +382,7 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
   rotationTruckFeeOptions: [25, 50],
   defaultRotationTruckFee: 25,
   rotationFrequencyWeeksOptions: [4, 6, 8],
-  defaultRotationFrequencyWeeks: 8,
+  defaultRotationFrequencyWeeks: 6,
   rotationCatalog: [
     { id: "rot-bro-4", group: "Bromeliads", type: "Bromeliad", variant: "—", sizeInches: 4, price: 11.5 },
     { id: "rot-bro-6", group: "Bromeliads", type: "Bromeliad", variant: "—", sizeInches: 6, price: 17.5 },
@@ -392,7 +392,6 @@ export const DEFAULT_PRICING_ENGINE_CONFIG: PricingEngineConfig = {
     { id: "rot-orch-ss-6", group: "Orchids", type: "Orchid", variant: "Single Spike", sizeInches: 6, price: 32 },
     { id: "rot-orch-ds-6", group: "Orchids", type: "Orchid", variant: "Double Spike", sizeInches: 6, price: 38.75 },
     { id: "rot-suc-2", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 2, price: 4 },
-    { id: "rot-suc-3", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 3, price: 5 },
     { id: "rot-suc-4", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 4, price: 8.5 },
     { id: "rot-suc-6", group: "Succulents", type: "Succulent", variant: "—", sizeInches: 6, price: 24 },
     { id: "rot-suc-an-9", group: "Succulents", type: "Succulent", variant: "Annual", sizeInches: 9, price: 14 },

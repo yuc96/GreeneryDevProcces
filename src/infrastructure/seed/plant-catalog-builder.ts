@@ -54,7 +54,6 @@ function pseudoGrowersFor(code: string, basePrice: number): GrowerOption[] {
 function estimatePlantBasePrice(sizeInches: number | null | undefined): number {
   if (!sizeInches) return 28;
   if (sizeInches <= 2) return 4;
-  if (sizeInches <= 3) return 5;
   if (sizeInches <= 6) return 14;
   if (sizeInches <= 12) return 22;
   if (sizeInches <= 14) return 38;
