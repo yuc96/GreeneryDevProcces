@@ -146,6 +146,14 @@ const PRIMARY = "#2b7041";
 const PRIMARY_CLASS = "bg-[#2b7041] hover:bg-[#235a37]";
 const MINT_DONE = "bg-emerald-50 text-emerald-900 border border-emerald-100";
 
+/** Shown and saved when the user turns commission on (one empty slot = pick a beneficiary). */
+const DEFAULT_COMMISSION_PCT = 0.05;
+const DEFAULT_COMMISSION_BENEFICIARIES = 1;
+
+function defaultCommissionBeneficiarySlots(): string[] {
+  return Array.from({ length: DEFAULT_COMMISSION_BENEFICIARIES }, () => "");
+}
+
 function commissionSlotsFromProposal(
   p: Pick<
     Proposal,
@@ -1910,8 +1918,24 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
         });
       }
     } else {
+      setCommissionPct(DEFAULT_COMMISSION_PCT);
+      setCommissionBeneficiaries(DEFAULT_COMMISSION_BENEFICIARIES);
+      setCommissionBeneficiarySlots(defaultCommissionBeneficiarySlots());
+      setCommissionPctDraft(null);
       setCommissionDetailsEnabled(true);
       setCommissionSettingsModalOpen(true);
+      const pid = proposalId;
+      if (pid && !isProposalLocked) {
+        void patchProposalGeneral(pid, {
+          quiet: true,
+          commissionSnapshot: {
+            detailsEnabled: true,
+            pct: DEFAULT_COMMISSION_PCT,
+            beneficiaries: DEFAULT_COMMISSION_BENEFICIARIES,
+            slots: defaultCommissionBeneficiarySlots(),
+          },
+        });
+      }
     }
   }
 
@@ -3436,12 +3460,12 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   ) : null}
                 </div>
 
-                <div className="flex w-full min-w-0 items-center justify-between gap-4 rounded-2xl border border-[#334155] bg-[#1e293b] px-5 py-4 shadow-lg sm:ml-auto sm:w-auto">
+                <div className="flex w-full min-w-0 items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 shadow-sm sm:ml-auto sm:w-auto dark:border-[#334155] dark:bg-[#1e293b] dark:shadow-lg">
                   <div className="flex min-w-0 flex-col">
-                    <h3 className="text-[13px] font-bold uppercase tracking-wide text-white">
+                    <h3 className="text-[13px] font-bold uppercase tracking-wide text-gray-900 dark:text-white">
                       Commission
                     </h3>
-                    <p className="mt-0.5 text-[13px] text-slate-400">
+                    <p className="mt-0.5 text-[13px] text-gray-600 dark:text-slate-400">
                       Optional sales commission
                     </p>
                   </div>
@@ -3460,10 +3484,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                             ? "View commission"
                             : "Configure commission"
                         }
-                        className="flex items-center gap-2 rounded-lg border border-transparent bg-[#334155] px-3 py-1.5 text-[13px] font-medium text-slate-200 transition-colors hover:border-slate-500 hover:bg-[#475569]"
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-transparent dark:bg-[#334155] dark:text-slate-200 dark:shadow-none dark:hover:border-slate-500 dark:hover:bg-[#475569]"
                       >
                         <Settings
-                          className="h-4 w-4 shrink-0 text-slate-300"
+                          className="h-4 w-4 shrink-0 text-gray-500 dark:text-slate-300"
                           strokeWidth={2}
                         />
                         {isProposalLocked ? "View" : "Configure"}
@@ -3475,10 +3499,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       aria-checked={commissionDetailsEnabled}
                       disabled={isProposalLocked}
                       onClick={handleCommissionToggle}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent px-0.5 transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e293b] disabled:cursor-not-allowed disabled:opacity-50 ${
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent px-0.5 transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-[#1e293b] disabled:cursor-not-allowed disabled:opacity-50 ${
                         commissionDetailsEnabled
                           ? "bg-[#10b981]"
-                          : "bg-[#475569]"
+                          : "bg-gray-300 dark:bg-[#475569]"
                       }`}
                     >
                       <span className="sr-only">Enable commission</span>
@@ -4080,7 +4104,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     Submitted By
                   </label>
                   <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                     value={submittedBy}
                     onChange={(e) => setSubmittedBy(e.target.value)}
                   />
@@ -4223,58 +4247,6 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           </div>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="border-t border-gray-200 bg-gray-50/95 px-5 py-3.5 dark:border-white/10 dark:bg-slate-950/80">
-                      {selectedClient.companyPhone?.trim() ||
-                      selectedClient.companyContact?.trim() ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full border border-emerald-200/90 bg-emerald-50/95 px-3 py-1.5 text-[11px] font-medium text-emerald-950 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200">
-                            <span
-                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-400 dark:shadow-[0_0_6px_rgba(52,211,153,0.8)]"
-                              aria-hidden
-                            />
-                            <span className="text-emerald-900/90 dark:text-slate-300">
-                              Primary company line
-                            </span>
-                            <span className="text-emerald-700/70 dark:text-emerald-300/90">
-                              ·
-                            </span>
-                            {selectedClient.companyPhone?.trim() ? (
-                              <a
-                                href={telHrefUs(selectedClient.companyPhone)}
-                                className="font-semibold text-[#2b7041] hover:text-[#235a37] dark:text-emerald-300 dark:hover:text-emerald-200"
-                              >
-                                {formatUsPhoneDisplay(
-                                  selectedClient.companyPhone,
-                                ) || selectedClient.companyPhone.trim()}
-                              </a>
-                            ) : null}
-                            {selectedClient.companyContact?.trim() ? (
-                              <>
-                                <span className="hidden text-emerald-800/50 sm:inline dark:text-slate-500">
-                                  ·
-                                </span>
-                                <span className="max-w-full text-emerald-900/85 dark:text-slate-400 sm:max-w-[min(100%,28rem)]">
-                                  {selectedClient.companyContact.trim()}
-                                </span>
-                              </>
-                            ) : null}
-                          </span>
-                        </div>
-                      ) : (
-                        <p className="text-[11px] leading-relaxed text-gray-500 dark:text-slate-500">
-                          Add{" "}
-                          <span className="font-semibold text-gray-700 dark:text-slate-400">
-                            company phone
-                          </span>{" "}
-                          and{" "}
-                          <span className="font-semibold text-gray-700 dark:text-slate-400">
-                            company contact
-                          </span>{" "}
-                          in the client catalog to show the main line here.
-                        </p>
-                      )}
                     </div>
                   </div>
                 ) : null}
@@ -4874,7 +4846,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                     Description
                                   </label>
                                   <input
-                                    className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                                     value={it.name}
                                     disabled={potClientOwned}
                                     onChange={(e) =>
@@ -4889,7 +4861,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                     Area
                                   </label>
                                   <input
-                                    className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                                     placeholder="e.g. Boardroom"
                                     value={it.area ?? ""}
                                     onChange={(e) =>
@@ -4906,7 +4878,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                   <input
                                     type="number"
                                     min={1}
-                                    className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                                     value={it.qty}
                                     onChange={(e) =>
                                       updateDraftItem(i, {
@@ -4927,7 +4899,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                     min={0}
                                     step={0.01}
                                     disabled={potClientOwned}
-                                    className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                                     value={it.wholesaleCost}
                                     onChange={(e) =>
                                       updateDraftItem(i, {
@@ -4943,7 +4915,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                   </label>
                                   <select
                                     disabled={potClientOwned}
-                                    className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950"
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                                     value={it.markup}
                                     onChange={(e) =>
                                       updateDraftItem(i, {
@@ -5108,7 +5080,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                   type="number"
                                   min={0}
                                   step={0.01}
-                                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                                   value={r.rotationUnitPrice}
                                   onChange={(e) =>
                                     updateRotation(idx, {
@@ -5264,7 +5236,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                   .get(row.globalIndex)
                                   ?.click()
                               }
-                              className="inline-flex items-center gap-2 rounded-lg border-2 border-[#2b7041]/70 bg-gray-950 px-3 py-2 text-sm font-semibold text-emerald-400 shadow-sm transition hover:bg-gray-900 dark:border-emerald-600/80 dark:bg-gray-900 dark:text-emerald-300 dark:hover:bg-gray-800"
+                              className="inline-flex items-center gap-2 rounded-lg border-2 border-[#2b7041]/70 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2b7041] shadow-sm transition hover:bg-emerald-100 dark:border-emerald-600/80 dark:bg-gray-900 dark:text-emerald-300 dark:hover:bg-gray-800"
                             >
                               <UploadCloud
                                 className="h-4 w-4 shrink-0"
@@ -5277,7 +5249,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
                         <div className="inline-flex max-w-full flex-wrap items-start justify-start gap-3 pt-4">
                           {showSuggested && suggestedPath ? (
-                            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border-2 border-emerald-500/50 bg-gray-900 shadow-inner dark:border-emerald-600/60">
+                            <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border-2 border-emerald-500/50 bg-gray-100 shadow-inner dark:border-emerald-600/60 dark:bg-gray-900">
                               <button
                                 type="button"
                                 title="View full size"
@@ -5615,7 +5587,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                   </label>
                   <input
                     type="email"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100 dark:placeholder:text-gray-500"
                     placeholder="contact@company.com"
                     value={sendEmail}
                     onChange={(e) => setSendEmail(e.target.value)}
@@ -5626,7 +5598,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                     Subject
                   </label>
                   <input
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                     value={sendSubject}
                     onChange={(e) => setSendSubject(e.target.value)}
                   />
@@ -6260,7 +6232,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       autoComplete="off"
                       spellCheck={false}
                       disabled={isProposalLocked}
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm tabular-nums text-gray-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                       value={commissionPctInputDisplay}
                       onChange={(e) => {
                         const next = sanitizeCommissionPctDigitsRaw(
@@ -6283,7 +6255,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       autoComplete="off"
                       spellCheck={false}
                       disabled={isProposalLocked}
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm tabular-nums text-gray-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                       value={String(commissionBeneficiaries)}
                       onChange={(e) => {
                         const d = sanitizeBeneficiaryCountDigits(
@@ -6338,7 +6310,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-gray-950/50"
                         >
                           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">
                               Beneficiary {slotIdx + 1}
                             </span>
                             {slotId.trim() ? (
@@ -6354,7 +6326,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                           </div>
                           <select
                             disabled={isProposalLocked}
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                             value={slotId.trim()}
                             onChange={(e) =>
                               setCommissionSlot(slotIdx, e.target.value)
@@ -6503,7 +6475,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
                 Location name
                 <input
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                   value={locFormName}
                   onChange={(e) => setLocFormName(e.target.value)}
                   placeholder="e.g. Main lobby"
@@ -6513,7 +6485,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
                 Street address
                 <input
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                   value={locFormAddress}
                   onChange={(e) => setLocFormAddress(e.target.value)}
                   placeholder="Full address"
@@ -6914,7 +6886,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     ) : null}
                     <input
-                      className="min-w-[120px] flex-1 rounded-md border border-gray-200 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                      className="min-w-[120px] flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                       value={row.label}
                       onChange={(e) =>
                         setStagingLibrary((prev) =>
@@ -6933,7 +6905,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         type="number"
                         min={0}
                         step={0.01}
-                        className="w-20 rounded-md border border-gray-200 px-1.5 py-1 text-sm dark:border-gray-700 dark:bg-gray-950"
+                        className="w-20 rounded-md border border-gray-200 bg-white px-1.5 py-1 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                         value={row.wholesaleCost}
                         onChange={(e) =>
                           setStagingLibrary((prev) =>
@@ -6950,7 +6922,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       />
                     </label>
                     <select
-                      className="rounded-md border border-gray-200 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950"
+                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                       value={row.markup}
                       onChange={(e) =>
                         setStagingLibrary((prev) =>
