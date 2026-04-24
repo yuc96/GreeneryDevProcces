@@ -208,9 +208,7 @@ function buildPurchaseOrder(input: {
   };
 }
 
-async function readProposalBundle(
-  id: string,
-): Promise<{
+async function readProposalBundle(id: string): Promise<{
   proposal: ProposalEntity;
   purchaseOrders: PurchaseOrderEntity[];
 }> {
@@ -732,9 +730,7 @@ export async function markProposalSent(id: string): Promise<ProposalEntity> {
   return p;
 }
 
-export async function approveAndGenerateOrdersProposal(
-  id: string,
-): Promise<{
+export async function approveAndGenerateOrdersProposal(id: string): Promise<{
   proposal: ProposalEntity;
   purchaseOrders: PurchaseOrderEntity[];
 }> {

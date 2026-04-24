@@ -1460,15 +1460,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
       const beneficiariesForPatch = snap
         ? snap.beneficiaries
         : commissionBeneficiaries;
-      const slotsForPatch = snap
-        ? snap.slots
-        : commissionBeneficiarySlots;
+      const slotsForPatch = snap ? snap.slots : commissionBeneficiarySlots;
       const rawIds = detailsEnabled
-        ? [
-            ...new Set(
-              slotsForPatch.map((s) => s.trim()).filter(Boolean),
-            ),
-          ]
+        ? [...new Set(slotsForPatch.map((s) => s.trim()).filter(Boolean))]
         : [];
       const firstRow = rawIds.length
         ? commissionBeneficiaryCatalog.find((b) => b.id === rawIds[0])
@@ -1491,9 +1485,7 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
           commissionPct: detailsEnabled ? pctForPatch : 0,
           commissionBeneficiaries: detailsEnabled ? beneficiariesForPatch : 0,
           commissionBeneficiaryIds: detailsEnabled ? rawIds : [],
-          commissionBeneficiaryId: detailsEnabled
-            ? (rawIds[0] ?? null)
-            : null,
+          commissionBeneficiaryId: detailsEnabled ? (rawIds[0] ?? null) : null,
           commissionBeneficiaryName: detailsEnabled
             ? firstRow?.name.trim() || undefined
             : "",
@@ -3392,7 +3384,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
               {/* Import + commission (aligned row; commission width ≤ Import Data) */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-between">
-                <div ref={excelMenuRef} className="relative shrink-0 self-start">
+                <div
+                  ref={excelMenuRef}
+                  className="relative shrink-0 self-start"
+                >
                   <button
                     type="button"
                     onClick={() => setExcelMenuOpen((o) => !o)}
@@ -3557,7 +3552,10 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         Guaranteed
                       </strong>{" "}
                       by default. Uncheck to switch to{" "}
-                      <MaintenanceTypeHoverTip variant="mm" className="align-baseline">
+                      <MaintenanceTypeHoverTip
+                        variant="mm"
+                        className="align-baseline"
+                      >
                         <span className="font-semibold text-gray-600 dark:text-gray-400">
                           MM
                         </span>
@@ -3808,15 +3806,13 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                                 />
                               </div>
 
-                              <div className="flex flex-col justify-start md:col-span-2">
-                                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-500">
+                              <div className="flex flex-col  justify-start md:col-span-2 ">
+                                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-500 h-5">
                                   Guarantee Type
                                 </label>
                                 {line.environment === "indoor" ? (
                                   <MaintenanceTypeHoverTip
-                                    variant={
-                                      line.guaranteed ? "gmm" : "mm"
-                                    }
+                                    variant={line.guaranteed ? "gmm" : "mm"}
                                     fullWidth
                                     placement="top"
                                   >
@@ -3991,7 +3987,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                         isProposalLocked ||
                         !clientId ||
                         !locationId ||
-                        !selectedClient?.locations.some((l) => l.id === locationId)
+                        !selectedClient?.locations.some(
+                          (l) => l.id === locationId,
+                        )
                       }
                       onClick={openEditLocationModal}
                     >
@@ -5053,129 +5051,129 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
 
               <>
                 {rotations.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-gray-500">
-                      No rotations in this proposal.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="space-y-4">
-                        {rotations.map((r, idx) => {
-                          const { monthly } = computeRotationMonthly(
-                            {
-                              qty: r.qty,
-                              frequencyWeeks: r.frequencyWeeks,
-                              rotationUnitPrice: r.rotationUnitPrice,
-                              truckFee: r.truckFee,
-                              plantName: r.plantName,
-                            },
-                            engineConfig,
-                          );
-                          const annual = monthly * 12;
-                          return (
-                            <div
-                              key={r.id}
-                              className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-950/50"
-                            >
-                              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                                <div>
-                                  <p className="text-lg font-bold text-[#2b7041] dark:text-emerald-400">
-                                    {r.plantName}
-                                  </p>
-                                  <p className="mt-1 text-xs text-gray-500">
-                                    Catalog price{" "}
-                                    {money.format(r.rotationUnitPrice)} ·
-                                    rotation freight{" "}
-                                    {(
-                                      engineConfig.rotationFreightPct * 100
-                                    ).toFixed(0)}
-                                    % on rotation retail (settings)
-                                  </p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Annual cost
-                                  </p>
-                                  <p className="text-2xl font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
-                                    {money.format(annual)}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                                <div>
-                                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Rotation unit price
-                                  </label>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step={0.01}
-                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
-                                    value={r.rotationUnitPrice}
-                                    onChange={(e) =>
-                                      updateRotation(idx, {
-                                        rotationUnitPrice: Math.max(
-                                          0,
-                                          Number(e.target.value) || 0,
-                                        ),
-                                      })
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Truck fee (P3)
-                                  </label>
-                                  <input
-                                    type="text"
-                                    readOnly
-                                    value={`$${r.truckFee.toFixed(2)} (auto by plant ranges)`}
-                                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="mt-5 space-y-3">
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                  Frequency (weeks)
+                  <p className="py-8 text-center text-sm text-gray-500">
+                    No rotations in this proposal.
+                  </p>
+                ) : (
+                  <>
+                    <div className="space-y-4">
+                      {rotations.map((r, idx) => {
+                        const { monthly } = computeRotationMonthly(
+                          {
+                            qty: r.qty,
+                            frequencyWeeks: r.frequencyWeeks,
+                            rotationUnitPrice: r.rotationUnitPrice,
+                            truckFee: r.truckFee,
+                            plantName: r.plantName,
+                          },
+                          engineConfig,
+                        );
+                        const annual = monthly * 12;
+                        return (
+                          <div
+                            key={r.id}
+                            className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-950/50"
+                          >
+                            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                              <div>
+                                <p className="text-lg font-bold text-[#2b7041] dark:text-emerald-400">
+                                  {r.plantName}
                                 </p>
-                                <div className="flex flex-wrap gap-2">
-                                  {ROT_PRESETS.map((p) => (
-                                    <button
-                                      key={p.label}
-                                      type="button"
-                                      onClick={() =>
-                                        updateRotation(idx, {
-                                          frequencyName: p.frequencyName,
-                                          frequencyWeeks: p.frequencyWeeks,
-                                        })
-                                      }
-                                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                                        r.frequencyWeeks === p.frequencyWeeks
-                                          ? `${PRIMARY_CLASS} text-white`
-                                          : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-                                      }`}
-                                    >
-                                      {p.label}
-                                    </button>
-                                  ))}
-                                </div>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  Catalog price{" "}
+                                  {money.format(r.rotationUnitPrice)} · rotation
+                                  freight{" "}
+                                  {(
+                                    engineConfig.rotationFreightPct * 100
+                                  ).toFixed(0)}
+                                  % on rotation retail (settings)
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                  Annual cost
+                                </p>
+                                <p className="text-2xl font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
+                                  {money.format(annual)}
+                                </p>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
 
-                      <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/30">
-                        <span className="text-sm font-bold text-[#2b7041] dark:text-emerald-400">
-                          Total
-                        </span>
-                        <span className="text-lg font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
-                          {money.format(rotationsAnnualTotal)}
-                        </span>
-                      </div>
-                    </>
-                  )}
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                  Rotation unit price
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                  value={r.rotationUnitPrice}
+                                  onChange={(e) =>
+                                    updateRotation(idx, {
+                                      rotationUnitPrice: Math.max(
+                                        0,
+                                        Number(e.target.value) || 0,
+                                      ),
+                                    })
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                  Truck fee (P3)
+                                </label>
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value={`$${r.truckFee.toFixed(2)} (auto by plant ranges)`}
+                                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="mt-5 space-y-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                Frequency (weeks)
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {ROT_PRESETS.map((p) => (
+                                  <button
+                                    key={p.label}
+                                    type="button"
+                                    onClick={() =>
+                                      updateRotation(idx, {
+                                        frequencyName: p.frequencyName,
+                                        frequencyWeeks: p.frequencyWeeks,
+                                      })
+                                    }
+                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                                      r.frequencyWeeks === p.frequencyWeeks
+                                        ? `${PRIMARY_CLASS} text-white`
+                                        : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                                    }`}
+                                  >
+                                    {p.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+                      <span className="text-sm font-bold text-[#2b7041] dark:text-emerald-400">
+                        Total
+                      </span>
+                      <span className="text-lg font-bold tabular-nums text-[#2b7041] dark:text-emerald-400">
+                        {money.format(rotationsAnnualTotal)}
+                      </span>
+                    </div>
+                  </>
+                )}
               </>
             </div>
           ) : null}
@@ -6288,7 +6286,9 @@ export function ProposalWizard({ embedded = false }: { embedded?: boolean }) {
                       className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950"
                       value={String(commissionBeneficiaries)}
                       onChange={(e) => {
-                        const d = sanitizeBeneficiaryCountDigits(e.target.value);
+                        const d = sanitizeBeneficiaryCountDigits(
+                          e.target.value,
+                        );
                         if (d === "") {
                           onCommissionBeneficiariesCountInput(0);
                         } else {
